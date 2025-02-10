@@ -43,13 +43,17 @@ Implementing high-performance data pipelines optimized for large-scale training.
 
 Preventing look-ahead bias with rigorous time-series validation.
 
+More details in the [data.md](docs/data.md) file.
+
 ### 🤖 Modeling Approaches
 
-Experimenting with Transformers, State-Space Models (SSMs), and hybrid architectures.
+Experimenting with Transformers, State-Space Models (SSMs), and hybrid backbones.
 
-Exploring multi-scale attention for short- and long-term pattern recognition.
+Using minimal contextual information (pair name, timeframe) to guide predictions.
 
 Optimizing for efficiency with domain-specific GPU kernels.
+
+More details in the [model.md](docs/model.md) file.
 
 ### 🚀 Scaling Strategy
 
