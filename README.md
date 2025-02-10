@@ -47,6 +47,8 @@ More details in the [data.md](docs/data.md) file.
 
 ### 🤖 Modeling Approaches
 
+Using a variant of the Byte Latent Transformer (BLT) architecture.
+
 Experimenting with Transformers, State-Space Models (SSMs), and hybrid backbones.
 
 Using minimal contextual information (pair name, timeframe) to guide predictions.
