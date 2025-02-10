@@ -2,7 +2,7 @@
 
 ## Architecture
 
-We will use a variant of the [Byte Latent Transformer](https://arxiv.org/abs/2412.09871)/
+We will use a variant of the [Byte Latent Transformer](https://arxiv.org/abs/2412.09871) (BLT) architecture. The BLT architecture is a transformer-based model that is designed to process sequences of bytes efficiently. It is particularly well-suited for our use case as it can process the raw bytes of the candlestick data directly without any preprocessing.
 
 ![BLT](assets/blt.png)
 

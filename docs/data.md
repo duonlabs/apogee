@@ -17,3 +17,12 @@ Once the raw bytes are loaded, we need to handle the preprocessing. This include
 ## Validation
 
 We will implement a validation pipeline to ensure that there is no look-ahead bias in the data. We will divide the data into training and validation splits with a predefined cutoff timestamp.
+
+
+## Q&A
+
+### How do you handle missing data?
+We consider that missing data is data. We will represent missing data with NaNs. The model will learn to handle missing data by itself. We hope that missing data will allow the model to unveil some patterns that are specific to post-downtime periods.
+
+### Why not classical time series preprocessing with normalization and why bytes?
+Classical time series preprocessing involves normalization, differencing, and other techniques to make the data ingestible by the model. However, these techniques complexify the preprocessing pipeline, delete the scale information, can introduce look-ahead bias, and are not suited for autoregressive models. We choose to use the raw bytes of the data to avoid these issues and to allow the model to learn the scale information by itself. We hope that certain behaviors are specific to low price assets and others to high price assets so that the model can learn to differentiate them. Furthermore, using bytes allows us to handle NaNs and infs for free.
