@@ -1,3 +1,4 @@
+import sys
 import pytest
 import pandas as pd
 import numpy as np
@@ -8,26 +9,6 @@ from pathlib import Path
 def assets_path() -> Path:
     return Path("tests/assets")
 
-@pytest.fixture
-def dataset_path(assets_path) -> Path:
-    return Path("data")
-
-@pytest.fixture
-def btc_buffer_path(dataset_path) -> Path:
-    return dataset_path / "binance" / "BTCUSDT.npy"
-
-@pytest.fixture
-def btc_buffer(btc_buffer_path) -> np.ndarray:
-    return np.load(btc_buffer_path).view(np.float32)
-
-@pytest.fixture
-def dataset_metadata_path(dataset_path) -> Path:
-    return dataset_path / "metadata.csv"
-
-@pytest.fixture
-def dataset_metadata(dataset_metadata_path) -> pd.DataFrame:
-    return pd.read_csv(dataset_metadata_path, index_col="key") 
-    
 @pytest.fixture
 def sample_btc_month_path(assets_path) -> Path:
     return assets_path / "BTCUSDT-1m-2019-03.csv"

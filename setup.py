@@ -11,10 +11,12 @@ setup(
     url='https://github.com/duonlabs/apogee',
     packages=find_packages(),
     install_requires=[
+        'requests',
         'numpy',
         'pandas',
         'torch',
-        'transformers',
+        'huggingface_hub',
+        'tqdm'
     ],
     classifiers=[
         'Programming Language :: Python :: 3',
