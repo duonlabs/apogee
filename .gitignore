@@ -1,5 +1,6 @@
-data
+dataset/
 .vscode
 __pycache__
 .pytest_cache
 .env
+apogee.egg-info

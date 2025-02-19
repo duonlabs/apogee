@@ -5,7 +5,7 @@ import numpy as np
 from pathlib import Path
 from apogee.data.sourcing.binance import get_pair_candles
 
-def save_pair_candles(pair: str, n_workers: int = 10, dataset_path: Path = Path("data")):
+def save_pair_candles(pair: str, n_workers: int = 10, dataset_path: Path = Path("dataset")):
     provider_path = dataset_path / "binance"
     provider_path.mkdir(parents=True, exist_ok=True)
     metadata_path = dataset_path / "metadata.csv"

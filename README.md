@@ -76,7 +76,14 @@ Apogée adheres to a strict open-source ethos:
 
 ### Software Development Phase
 - 🚧 Data sourcing
-- 🔜 Data loading
+    - Code ✅
+    - Tests 🚧
+    - Re-import all of Binance without tokenization 🔜
+    - Import all of Binance 🔜
+    - Add providers 🔜
+- 🚧 Data loading
+    - Code ✅
+    - Tests 🔜
 - 🔜 Models
 - 🔜 Training
 - 🔜 Evaluation
