@@ -51,7 +51,7 @@ class CryptoDataset(torch.utils.data.Dataset):
         pair_index = np.searchsorted(self.cumulative_samples, index, side="right")
         pair_start = self.cumulative_samples[pair_index -  1] if pair_index > 0 else 0
         block_index = index - pair_start
-        array = np.load(self.dataset_path / f"{self.metadata["key"].values[pair_index].replace('.', '/')}.npy", mmap_mode="r")
+        array = np.load(self.dataset_path / f"{self.metadata['key'].values[pair_index].replace('.', '/')}.npy", mmap_mode="r")
         array = array[self.metadata["start_offset"].values[pair_index]:self.metadata["end_offset"].values[pair_index]]
         group_size = (self.metadata["effective_frequency"].values[pair_index] // self.metadata["freq"].values[pair_index])
         block = array[
