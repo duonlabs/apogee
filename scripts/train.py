@@ -1,16 +1,22 @@
+import os
 import time
 import math
 import torch
 import wandb
 import lovely_tensors as lt
 
+from pathlib import Path
 from contextlib import nullcontext
+from datetime import datetime
+from dataclasses import asdict
 
 from apogee.data.loading import DataModule, DataConfig, DataloaderConfig
 from apogee.model import GPT, GPTConfig
 
 lt.monkey_patch()
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+runs_dir = Path("runs")
 
 log_2 = torch.tensor(2.0, device=device).log()
 @torch.no_grad()
@@ -61,6 +67,7 @@ def train_step(
     optimizer: torch.optim.Optimizer,
     data: torch.Tensor,
     step: int,
+    best_val_loss: float,
     ctx: torch.cuda.amp.autocast,
     scaler: torch.amp.GradScaler,
     eval_interval: int,
@@ -81,6 +88,18 @@ def train_step(
             for k, v in metrics[split].items():
                 logging[f"{split}/{k}"] = v
         wandb.log(logging)
+        if metrics['val']['loss'] < best_val_loss:
+            best_val_loss = metrics['val']['loss']
+            if step > 0:
+                checkpoint = {
+                    'model': model.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'model_config': asdict(model_config),
+                    'step': step,
+                    'best_val_loss': best_val_loss,
+                }
+                print(f"saving checkpoint to {out_dir}")
+                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
     data = data.to(device)
     X, y = data[:, :-1].long(), data[:, 1:].long()
     with ctx:
@@ -99,6 +118,7 @@ def train_step(
 if __name__ == '__main__':
     # Args
     hf_repo = 'duonlabs/apogee'
+    run_name = 'gpt2'
     cutoff = 1730332740
     num_workers = 4
     learning_rate = 1e-3
@@ -109,10 +129,13 @@ if __name__ == '__main__':
     warmup_iters = 500
     lr_decay_iters = 10000
     min_lr = 1e-5
+    best_val_loss = float('inf')
+    out_dir = runs_dir / f"{run_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    os.makedirs(out_dir, exist_ok=True)
 
     # Setup
 
-    wandb.init(project="apogee", name="gpt2", config={
+    wandb.init(project="apogee", name=run_name, config={
         "cutoff": cutoff,
         "batch_size": batch_size,
         "learning_rate": learning_rate,
@@ -127,10 +150,8 @@ if __name__ == '__main__':
     ctx =  torch.amp.autocast(device_type=device, dtype=ptdtype)
     datamodule = DataModule(DataConfig(hf_repo=hf_repo, cutoff=cutoff))
     dataloader_cfg = DataloaderConfig(num_workers=num_workers, batch_size=batch_size, shuffle=True)
-    model = GPT(GPTConfig(
-        n_layer=6,
-        # n_layer=12,
-    )).to(device)
+    model_config = GPTConfig(n_layer=12)
+    model = GPT(model_config).to(device)
     model = torch.compile(model)
     model.train()
 
@@ -139,7 +160,7 @@ if __name__ == '__main__':
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
     with (torch.profiler.profile() if profile else nullcontext()) as prof:
         for step, data in zip(range(10 if profile else len(dataloader)), dataloader):
-            train_step(datamodule, dataloader_cfg, model, optimizer, data, step, ctx, scaler, eval_interval, prof)
+            train_step(datamodule, dataloader_cfg, model, optimizer, data, step, best_val_loss, ctx, scaler, eval_interval, prof)
     if prof: 
         prof.export_chrome_trace("trace.json") #noqa
         prof._finalize()

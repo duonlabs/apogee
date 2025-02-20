@@ -1,4 +1,5 @@
 dataset/
+runs
 .vscode
 __pycache__
 .pytest_cache
