@@ -65,7 +65,9 @@ class CryptoDataset(torch.utils.data.Dataset):
         buffer[:, 2] = np.nanmin(block[..., 2], axis=1)
         buffer[:, 3] = block[:, -1, 3]
         buffer[:, 4] = np.nansum(block[..., 4], axis=1) if ~np.isnan(block[..., 4]).any() else np.nan
-        return torch.tensor(buffer.view(np.uint8).reshape(-1))
+        buffer = buffer.view(np.uint8).reshape(-1).astype(np.uint16)
+        buffer = np.concatenate([np.array([256], dtype=np.uint16), buffer]) # Prepend <BOS> (Begin of Series) token
+        return torch.tensor(buffer)
 
     def __len__(self):
         return self.length
