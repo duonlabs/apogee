@@ -29,7 +29,7 @@ def save_pair_candles(pair: str, n_workers: int = 10, dataset_path: Path = Path(
         "freq": 60,
     }
     metadata.to_csv(metadata_path)
-    np.save(provider_path / f"{pair}.npy", buffer.view(np.uint8))
+    np.save(provider_path / f"{pair}.npy", buffer)
 
 # Example usage:
 if __name__ == '__main__':

@@ -1,4 +1,3 @@
-import time
 import torch
 import huggingface_hub
 import numpy as np
@@ -7,7 +6,6 @@ import pandas as pd
 from typing import Optional, Tuple, Union
 from pathlib import Path
 from dataclasses import dataclass
-from tqdm import tqdm
 
 aggregations = {
     "1m": 1 * 60,
@@ -40,16 +38,21 @@ class CryptoDataset(torch.utils.data.Dataset):
         self.cumulative_samples = np.cumsum(self.number_of_samples)
         self.length = sum(self.number_of_samples)
 
+    
+    @property
+    def num_candles(self):
+        return self.length * self.dataset_config.context_size
+
     @property
     def num_tokens(self):
-        return self.length * self.dataset_config.context_size
+        return self.length * self.dataset_config.context_size * 4 * 5
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
         pair_index = np.searchsorted(self.cumulative_samples, index, side="right")
         pair_start = self.cumulative_samples[pair_index -  1] if pair_index > 0 else 0
         block_index = index - pair_start
         array = np.load(self.dataset_path / f"{self.metadata["key"].values[pair_index].replace('.', '/')}.npy", mmap_mode="r")
-        array = array[self.metadata["start_offset"].values[pair_index]:self.metadata["end_offset"].values[pair_index]].view(np.float32)
+        array = array[self.metadata["start_offset"].values[pair_index]:self.metadata["end_offset"].values[pair_index]]
         group_size = (self.metadata["effective_frequency"].values[pair_index] // self.metadata["freq"].values[pair_index])
         block = array[
             array.shape[0] - (block_index + 1) * self.dataset_config.context_size * group_size:
