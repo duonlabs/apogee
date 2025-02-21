@@ -127,7 +127,9 @@ if __name__ == '__main__':
     run_name = 'gpt2'
     cutoff = 1730332740
     num_workers = 4
-    learning_rate = 1.2e-3 * mup_approx_factor
+    learning_rate = 1e-3 * mup_approx_factor
+    weight_decay = 0.01
+    betas = (0.9, 0.999)
     batch_size = 32
     profile = False
     eval_iters = 200
@@ -163,7 +165,7 @@ if __name__ == '__main__':
 
     dataloader = datamodule.train_dataloader(dataloader_cfg)
     print("Compiling the model...")
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    optimizer = model.configure_optimizers(learning_rate=learning_rate, weight_decay=weight_decay, betas=betas, device_type=device)
     with (torch.profiler.profile() if profile else nullcontext()) as prof:
         for step, data in zip(range(10 if profile else len(dataloader)), dataloader):
             train_step(datamodule, dataloader_cfg, model, optimizer, data, step, best_val_loss, ctx, scaler, eval_interval, prof)
