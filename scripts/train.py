@@ -119,7 +119,7 @@ def train_step(
 if __name__ == '__main__':
     # Args
     n_layer=12
-    dim = 768
+    dim = 128
     mup_approx_factor = 128/dim
     head_dim=64
     n_head = int(dim/head_dim)
@@ -127,16 +127,16 @@ if __name__ == '__main__':
     run_name = 'gpt2'
     cutoff = 1730332740
     num_workers = 4
-    learning_rate = 1e-3 * mup_approx_factor
+    learning_rate = 1.2e-3 * mup_approx_factor
     weight_decay = 0.01
-    betas = (0.9, 0.999)
+    betas = (0.9, 0.95)
     batch_size = 32
     profile = False
     eval_iters = 200
     eval_interval = 1000
     warmup_iters = 500
-    lr_decay_iters = 10000
-    min_lr = 5e-5 * mup_approx_factor
+    lr_decay_iters = 30000
+    min_lr = 1e-4 * mup_approx_factor
     best_val_loss = float('inf')
     out_dir = runs_dir / f"{run_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     os.makedirs(out_dir, exist_ok=True)
