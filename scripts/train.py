@@ -113,22 +113,28 @@ def train_step(
     torch.cuda.synchronize()
     if prof: prof.step() #noqa
     step_duration = time.time() - t_start
-    print(f"Step: {step}, Loss: {loss.item()}, Duration: {step_duration * 1000:.2f} milliseconds")
+    if step % 100 == 0:
+        print(f"Step: {step}, Loss: {loss.item()}, Duration: {step_duration * 1000:.2f} milliseconds")
 
 if __name__ == '__main__':
     # Args
+    n_layer=12
+    dim = 768
+    mup_approx_factor = 128/dim
+    head_dim=64
+    n_head = int(dim/head_dim)
     hf_repo = 'duonlabs/apogee'
     run_name = 'gpt2'
     cutoff = 1730332740
     num_workers = 4
-    learning_rate = 1e-3
+    learning_rate = 1.2e-3 * mup_approx_factor
     batch_size = 32
     profile = False
     eval_iters = 200
-    eval_interval = 100
+    eval_interval = 1000
     warmup_iters = 500
     lr_decay_iters = 10000
-    min_lr = 1e-5
+    min_lr = 5e-5 * mup_approx_factor
     best_val_loss = float('inf')
     out_dir = runs_dir / f"{run_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     os.makedirs(out_dir, exist_ok=True)
@@ -150,7 +156,7 @@ if __name__ == '__main__':
     ctx =  torch.amp.autocast(device_type=device, dtype=ptdtype)
     datamodule = DataModule(DataConfig(hf_repo=hf_repo, cutoff=cutoff))
     dataloader_cfg = DataloaderConfig(num_workers=num_workers, batch_size=batch_size, shuffle=True)
-    model_config = GPTConfig(n_layer=12)
+    model_config = GPTConfig(n_layer=n_layer,n_embd=dim, n_head=n_head)
     model = GPT(model_config).to(device)
     model = torch.compile(model)
     model.train()
