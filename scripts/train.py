@@ -105,11 +105,12 @@ def train_step(
     with ctx:
         logits = model(X)
         loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), y.view(-1))
-    optimizer.zero_grad()
     scaler.scale(loss).backward()
     scaler.unscale_(optimizer)
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     scaler.step(optimizer)
+    scaler.update()
+    optimizer.zero_grad(set_to_none=True)
     torch.cuda.synchronize()
     if prof: prof.step() #noqa
     step_duration = time.time() - t_start
