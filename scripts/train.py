@@ -77,7 +77,7 @@ def train_step(
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     t_start = time.time()
-    if step % eval_interval == 0:
+    if step % eval_interval == 0 and step > 0:
         metrics = estimate_metrics(datamodule, dataloader_cfg, model, ctx)
         print(f"step {step}: train loss {metrics['train']['loss']:.4f}, val loss {metrics['val']['loss']:.4f}")
         logging = {
@@ -90,16 +90,15 @@ def train_step(
         wandb.log(logging)
         if metrics['val']['loss'] < best_val_loss:
             best_val_loss = metrics['val']['loss']
-            if step > 0:
-                checkpoint = {
-                    'model': model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'model_config': asdict(model_config),
-                    'step': step,
-                    'best_val_loss': best_val_loss,
-                }
-                print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+            checkpoint = {
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'model_config': asdict(model_config),
+                'step': step,
+                'best_val_loss': best_val_loss,
+            }
+            print(f"saving checkpoint to {out_dir}")
+            torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
     data = data.to(device)
     X, y = data[:, :-1].long(), data[:, 1:].long()
     with ctx:
