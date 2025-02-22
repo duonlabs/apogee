@@ -1,4 +1,5 @@
 import io
+import os
 import requests
 import argparse
 import huggingface_hub
@@ -72,5 +73,5 @@ if __name__ == '__main__':
     parser.add_argument("--repo_id", type=str, default="duonlabs/apogee", help="The Hugging Face Hub repository ID to save the data.")
     parser.add_argument("--n_workers", type=int, default=10, help="Number of worker threads to use for downloading data.")
     args = parser.parse_args()
-    huggingface_hub.login()
+    huggingface_hub.login(token=os.getenv("HF_TOKEN"))
     save_pair_candles(args.pair, repo_id=args.repo_id, n_workers=args.n_workers)
