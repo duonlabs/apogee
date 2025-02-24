@@ -2,7 +2,7 @@ from contextlib import nullcontext
 import torch
 
 from apogee.data.loading import DataModule, DataConfig, aggregations
-from apogee.model import GPT, GPTConfig
+from apogee.model import GPT, ModelConfig
 
 torch.set_printoptions(precision=4, sci_mode=False)
 
@@ -34,7 +34,7 @@ ctx = nullcontext() if device == 'cpu' else torch.amp.autocast(device_type=devic
 
 # model
 checkpoint = torch.load(ckpt_path, map_location=device)
-gptconf = GPTConfig(**checkpoint["model_config"])
+gptconf = ModelConfig(**checkpoint["model_config"])
 model = GPT(gptconf)
 state_dict = checkpoint['model']
 unwanted_prefix = '_orig_mod.'

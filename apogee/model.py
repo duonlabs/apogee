@@ -6,11 +6,13 @@ https://github.com/openai/gpt-2/blob/master/src/model.py
 2) huggingface/transformers PyTorch implementation:
 https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
 """
-
+import json
 import math
 import inspect
 import torch
 
+from pathlib import Path
+from typing import Optional, Union
 from dataclasses import dataclass
 from torch.nn import functional as F
 
@@ -105,13 +107,15 @@ class Block(torch.nn.Module):
         return x
 
 @dataclass
-class GPTConfig:
+class ModelConfig:
     block_size: int = 480 # context_size * num_tok_per_candles = 24 * 20
     vocab_size: int = 257 # Number of combinations for a byte + BOS
     n_layer: int = 3
-    n_head: int = 6
+    n_head: Optional[int] = None
+    head_dim: Optional[int] = None
     n_embd: int = 384
     dropout: float = 0.0
+    mup_base_dim: int = 128
     bias: bool = False
 
 class GPT(torch.nn.Module):
@@ -120,7 +124,12 @@ class GPT(torch.nn.Module):
         super().__init__()
         assert config.vocab_size is not None
         assert config.block_size is not None
+        assert config.n_head is not None or config.head_dim is not None
         self.config = config
+        if config.n_head is None:
+            config.n_head = config.n_embd // config.head_dim
+        if config.head_dim is None:
+            config.head_dim = config.n_embd // config.n_head
 
         self.transformer = torch.nn.ModuleDict(dict(
             wte = torch.nn.Embedding(config.vocab_size, config.n_embd),
@@ -260,3 +269,9 @@ class GPT(torch.nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
+    
+    @staticmethod
+    def from_config_file(config_file: Union[str, Path]):
+        with open(config_file, 'r') as f:
+            config_data = json.load(f)
+        return GPT(ModelConfig(**config_data))

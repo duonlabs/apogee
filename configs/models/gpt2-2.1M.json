@@ -1,0 +1,5 @@
+{
+    "n_layer": 12,
+    "n_embd": 128,
+    "head_dim": 64
+}
