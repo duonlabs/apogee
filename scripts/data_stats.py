@@ -10,11 +10,17 @@ def process_data_stats(hf_repo: str = "duonlabs/apogee", cutoff: int = 173033274
     datamodule = DataModule(DataConfig(hf_repo=hf_repo, cutoff=cutoff))
     print("Dataset stats:")
     print("Train dataset:")
-    print(f"Number of tokens: {datamodule.train_dataset.num_tokens // 1_000_000}M")
-    print(f"Number of samples: {len(datamodule.train_dataset) // 1_000}K")
+    print(f"Number of tokens: {datamodule.train_dataset.num_tokens / 1_000_000_000:.2f}G")
+    print(f"Number of candles: {datamodule.train_dataset.num_candles / 1_000_000:.2f}M")
+    print(f"Number of samples: {len(datamodule.train_dataset) / 1_000_000:.2f}M")
     print("Validation dataset:")
-    print(f"Number of tokens: {datamodule.val_dataset.num_tokens // 1_000_000}M")
-    print(f"Number of samples: {len(datamodule.val_dataset) // 1_000}K")
+    print(f"Number of tokens: {datamodule.val_dataset.num_tokens / 1_000_000_000:.2f}G")
+    print(f"Number of candles: {datamodule.val_dataset.num_candles / 1_000_000:.2f}M")
+    print(f"Number of samples: {len(datamodule.val_dataset) / 1_000_000:.2f}M")
+    print("Total:")
+    print(f"Number of tokens: {(datamodule.train_dataset.num_tokens + datamodule.val_dataset.num_tokens) / 1_000_000_000:.2f}G")
+    print(f"Number of candles: {(datamodule.train_dataset.num_candles + datamodule.val_dataset.num_candles) / 1_000_000:.2f}M")
+    print(f"Number of samples: {(len(datamodule.train_dataset) + len(datamodule.val_dataset)) / 1_000_000:.2f}M")
     dataloader = datamodule.train_dataloader(DataloaderConfig(num_workers=num_workers, shuffle=True))
 
     start_time = time.time()
@@ -26,7 +32,7 @@ def process_data_stats(hf_repo: str = "duonlabs/apogee", cutoff: int = 173033274
     n_samples_all_nans = 0
     progress_bar = tqdm(total=len(dataloader), desc="Processing", unit="batch")
     for batch in dataloader:
-        tok_is_nan = (batch.view(batch.shape[0], -1, 20) == torch.tensor([0, 0, 192, 127]*5)).all(-1) # [0, 0, 192, 127] is NaN as handled by torch
+        tok_is_nan = (batch[:, 1:].view(batch.shape[0], -1, 20) == torch.tensor([0, 0, 192, 127]*5, dtype=batch.dtype)).all(-1) # [0, 0, 192, 127] is NaN as handled by torch
         n_nans_toks += tok_is_nan.int().sum()
         n_samples_any_nans += tok_is_nan.any(-1).int().sum()
         n_samples_all_nans += tok_is_nan.all(-1).int().sum()
