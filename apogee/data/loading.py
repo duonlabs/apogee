@@ -22,6 +22,7 @@ class DatasetConfig:
     context_size: int = 24
     start: Optional[int] = None
     end: Optional[int] = None
+    temperature: float = 1.4
 
 class CryptoDataset(torch.utils.data.Dataset):
     def __init__(self, metadata: pd.DataFrame, dataset_config: DatasetConfig):
@@ -35,9 +36,16 @@ class CryptoDataset(torch.utils.data.Dataset):
         self.metadata["end_offset"] = (self.metadata["effective_end"] - self.metadata["start"]) // self.metadata["freq"]
         self.metadata = metadata[metadata["effective_end"] > metadata["effective_start"]]
         self.metadata = pd.merge(self.metadata, pd.Series(aggregations, name="effective_frequency"), how="cross")
-        self.number_of_samples = (((self.metadata["effective_end"] - self.metadata["effective_start"]) // self.metadata["effective_frequency"]) // self.dataset_config.context_size).values
-        self.cumulative_samples = np.cumsum(self.number_of_samples)
-        self.length = sum(self.number_of_samples)
+        self.metadata["number_of_samples"] = ((self.metadata["effective_end"] - self.metadata["effective_start"]) // self.metadata["effective_frequency"]) // self.dataset_config.context_size
+        if dataset_config.temperature != 1.0:
+            logits = np.log(self.metadata["number_of_samples"].values)  # Update to use self.metadata["number_of_samples"]
+            factor = (np.exp(logits / dataset_config.temperature) / np.sum(np.exp(logits / dataset_config.temperature))) * (np.sum(self.metadata["number_of_samples"].values) / self.metadata["number_of_samples"].values)
+            repeats = (np.floor(factor).astype(np.int32)) + 1
+            self.metadata = self.metadata.iloc[np.repeat(np.arange(len(self.metadata)), repeats)].reset_index(drop=True)
+            last_selectors = np.cumsum(repeats) - 1
+            self.metadata.loc[np.cumsum(repeats) - 1, "number_of_samples"] = np.round((factor % 1) * self.metadata.loc[last_selectors, "number_of_samples"]).astype(np.int32)
+        self.cumulative_samples = np.cumsum(self.metadata["number_of_samples"].values)
+        self.length = sum(self.metadata["number_of_samples"].values)
 
     @property
     def num_candles(self):
@@ -86,6 +94,8 @@ class DataConfig:
     cutoff: int
     revision: Optional[str] = None
     context_size: int = 24
+    training_temperature: float = 1.4
+    val_temperature: float = 1.0
 
 class DataModule:
     def __init__(self, config: DataConfig):
@@ -95,8 +105,8 @@ class DataModule:
         self.metadata["freq"] = self.metadata["freq"].astype(int)
         self.metadata["start"] = self.metadata["start"].astype(int)
         self.metadata["end"] = self.metadata["end"].astype(int) + self.metadata["freq"]
-        self.train_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, end=config.cutoff))
-        self.val_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, start=config.cutoff))
+        self.train_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, end=config.cutoff, temperature=config.training_temperature))
+        self.val_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, start=config.cutoff, temperature=config.val_temperature))
 
     def train_dataloader(self, config: DataloaderConfig):
         return torch.utils.data.DataLoader(self.train_dataset, **config.__dict__)
