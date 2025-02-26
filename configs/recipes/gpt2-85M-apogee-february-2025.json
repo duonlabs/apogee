@@ -1,0 +1,10 @@
+{
+    "model_name": "gpt2-85M",
+    "data_name": "apogee-february-2025",
+    "learning_rate": 1.2e-3,
+    "min_lr": 1e-4,
+    "weight_decay": 0.01,
+    "batch_size": 32,
+    "warmup_iters": 500,
+    "lr_decay_iters": 30000
+}
