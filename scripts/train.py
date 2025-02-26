@@ -2,23 +2,56 @@ import json
 import os
 import time
 import math
-from typing import Callable, Dict, List, Optional, Tuple
+import pandas as pd
 import torch
 import wandb
 import lovely_tensors as lt
 import numpy as np
+import mplfinance as mpf
 
+from typing import Callable, Dict, Optional, Tuple
 from pathlib import Path
 from contextlib import nullcontext
 from datetime import datetime
 from dataclasses import asdict, dataclass
+from matplotlib import pyplot as plt
 
 from apogee.data.loading import DataModule, DataConfig, DataloaderConfig, aggregations
 from apogee.model import GPT, ModelConfig
 
 lt.monkey_patch()
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
+# Define candlestick colors
+# mc = mpf.make_marketcolors(up="green", down="red", edge="black", wick="black", volume="dodgerblue")
+# style = mpf.make_mpf_style(marketcolors=mc, gridcolor="gray", gridstyle="dotted")
+mpf_style = {
+    "base_mpl_style": "dark_background",
+    "marketcolors": {
+        "candle": {"up": "#3dc985", "down": "#ef4f60"},  
+        "edge": {"up": "#3dc985", "down": "#ef4f60"},  
+        "wick": {"up": "#3dc985", "down": "#ef4f60"},  
+        "ohlc": {"up": "green", "down": "red"},
+        "volume": {"up": "#247252", "down": "#82333f"},  
+        "vcedge": {"up": "green", "down": "red"},  
+        "vcdopcod": False,
+        "alpha": 1,
+    },
+    "mavcolors": ("#ad7739", "#a63ab2", "#62b8ba"),
+    "facecolor": "#1b1f24",
+    "gridcolor": "#2c2e31",
+    "gridstyle": "--",
+    "y_on_right": True,
+    "rc": {
+        "axes.grid": True,
+        "axes.grid.axis": "y",
+        "axes.edgecolor": "#474d56",
+        "axes.titlecolor": "red",
+        "figure.facecolor": "#161a1e",
+        "figure.titlesize": "x-large",
+        "figure.titleweight": "semibold",
+    },
+    "base_mpf_style": "binance-dark",
+}
 runs_dir = Path("runs")
 
 @dataclass
@@ -40,11 +73,16 @@ class Recipe:
 
 @dataclass
 class TrainingSetup:
-    recipe_name: str = "gpt2-21M-apogee-february-2025"
+    recipe_name: str = "gpt2-2.4M-apogee-february-2025"
     profile: bool = False
     eval_iters: int = 200
     eval_interval: int = 1000
-    watchlist: Tuple[List[str], List[str]] = (["binance.BTCUSDT", "binance.SOLUSDT", "binance.DOGEUSDT"], ["5m", "8h"])
+    out_dir: Optional[str] = None
+    watchlist: Tuple[Tuple[str], Tuple[str]] = (("binance.BTCUSDT", "binance.SOLUSDT", "binance.DOGEUSDT"), ("5m", "8h"))
+    drawlist: Tuple[Tuple[str, str]] = (("binance.BTCUSDT", "8h"), ("binance.BTCUSDT", "1m"), ("binance.DOGEUSDT", "1h"))
+    draw_horizon: int = 4
+    draw_temperature: float = 1.0
+    draw_topk: Optional[int] = None
 
 log_2 = torch.tensor(2.0, device=device).log()
 @torch.no_grad()
@@ -53,19 +91,18 @@ def estimate_metrics(
     dataloader_cfg: DataloaderConfig,
     model: torch.nn.Module,
     ctx: torch.cuda.amp.autocast,
-    eval_iters: int = 200,
-    watchlist: Optional[Tuple[List[str], List[str]]] = None,
+    training_setup: TrainingSetup,
 ) -> Dict[str, Dict[str, float]]:
     out = {}
     model.eval()
     for split in ['train', 'val']:
         metrics = {
-            "loss": torch.zeros(eval_iters),
-            "extropy": torch.zeros(eval_iters),
-            "last_candle_extropy": torch.zeros(eval_iters),
+            "loss": torch.zeros(training_setup.eval_iters),
+            "extropy": torch.zeros(training_setup.eval_iters),
+            "last_candle_extropy": torch.zeros(training_setup.eval_iters),
         }
         dataloader = getattr(datamodule, f"{split}_dataloader")(dataloader_cfg)
-        for k, data in zip(range(eval_iters), dataloader):
+        for k, data in zip(range(training_setup.eval_iters), dataloader):
             data = data.to(device)
             X, Y = data[:, :-1].long(), data[:, 1:].long()
             with ctx:
@@ -78,26 +115,57 @@ def estimate_metrics(
         out[split] = {}
         for k, v in metrics.items():
             out[split][k] = v.mean().item()
-    if watchlist is None:
-        return out
-    out["watchlist"] = {}
-    for pair in watchlist[0]:
-        assert pair in datamodule.val_dataset.metadata["key"].values
-        for freq in watchlist[1]:
-            print("Inference for", pair, freq)
-            m = datamodule.val_dataset.metadata
+    if training_setup.watchlist is not None:
+        m = datamodule.val_dataset.metadata
+        out["watchlist"] = {}
+        for pair in training_setup.watchlist[0]:
+            assert pair in datamodule.val_dataset.metadata["key"].values
+            for freq in training_setup.watchlist[1]:
+                print("Inference for", pair, freq)
+                row = m[(m["key"] == pair) & (m["effective_frequency"] == aggregations[freq])].iloc[0]
+                idx = row.name.item()
+                offset = datamodule.val_dataset.cumulative_samples[idx].item()
+                samples = []
+                for i in np.random.permutation(m["number_of_samples"][idx])[:dataloader_cfg.batch_size]:
+                    samples.append(datamodule.val_dataset[offset + i])
+                data = torch.stack(samples).to(device)
+                X, Y = data[:, :-1].long(), data[:, 1:].long()
+                with ctx:
+                    logits = model(X)
+                    loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), Y.view(-1), reduction='none').view(Y.shape[0], -1, 20)
+                out["watchlist"][f"{pair}.{freq}.last_candle_extropy"] = ((160 - (loss[:, -1] / log_2).sum(-1)) / 160).mean().item()
+    if training_setup.drawlist is not None:
+        m = datamodule.val_dataset.metadata
+        out["plot"] = {}
+        for pair, freq in training_setup.drawlist:
             row = m[(m["key"] == pair) & (m["effective_frequency"] == aggregations[freq])].iloc[0]
             idx = row.name.item()
             offset = datamodule.val_dataset.cumulative_samples[idx].item()
-            samples = []
-            for i in np.random.permutation(datamodule.val_dataset.number_of_samples[idx])[:dataloader_cfg.batch_size]:
-                samples.append(datamodule.val_dataset[offset + i])
-            data = torch.stack(samples).to(device)
-            X, Y = data[:, :-1].long(), data[:, 1:].long()
+            data = datamodule.val_dataset[offset]
+            token_horizon = training_setup.draw_horizon * 20
+            start_ids = data[:-token_horizon]
+            x = start_ids.long().to(device)[None, ...]
+            # run generation
             with ctx:
-                logits = model(X)
-                loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), Y.view(-1), reduction='none').view(Y.shape[0], -1, 20)
-            out["watchlist"][f"{pair}.{freq}.last_candle_extropy"] = ((160 - (loss[:, -1] / log_2).sum(-1)) / 160).mean().item()
+                y = model.generate(x, token_horizon, temperature=training_setup.draw_temperature, top_k=training_setup.draw_topk)
+            candles = y[0, 1:].to(torch.uint8).view(-1, 20).view(torch.float32) # [ctx_size, 5]
+            # Convert to DataFrame
+            df = pd.DataFrame(candles.cpu().numpy(), columns=["Open", "High", "Low", "Close", "Volume"])
+            df.index = pd.date_range(end=pd.Timestamp.now(), periods=len(df), freq=freq)  # Generate timestamps
+            # Create candlestick plot
+            image_path = os.path.join(training_setup.out_dir, f"candles_{pair}_{freq}.png")
+            mpf.plot(
+                df,
+                type="candle",
+                volume=True,
+                style=mpf_style,
+                title=f"{pair} - {freq}",
+                ylabel="Price",
+                ylabel_lower="Volume",
+                datetime_format="%b %d %H:%M",
+                savefig=image_path,
+            )
+            out["plot"][f"{pair}.{freq}"] = wandb.Image(image_path)
     model.train()
     return out
 
@@ -136,14 +204,14 @@ def train_step(
         param_group['lr'] = lr
     t_start = time.time()
     if step % training_setup.eval_interval == 0 and step > 0:
-        metrics = estimate_metrics(datamodule, dataloader_cfg, model, ctx, watchlist=training_setup.watchlist)
+        metrics = estimate_metrics(datamodule, dataloader_cfg, model, ctx, training_setup)
         print(f"step {step}: train loss {metrics['train']['loss']:.4f}, val loss {metrics['val']['loss']:.4f}")
         logging = {
             "step": step,
             "num_candles": num_candles,
             "lr": lr,  # updated from lr to learning_rate for consistency
         }
-        for split in ['train', 'val'] + (['watchlist'] if training_setup.watchlist is not None else []):
+        for split in ['train', 'val'] + (['watchlist'] if training_setup.watchlist is not None else []) + (['plot'] if training_setup.drawlist is not None else []):
             for k, v in metrics[split].items():
                 logging[f"{split}/{k}"] = v
         wandb.log(logging)
@@ -157,8 +225,8 @@ def train_step(
                 "num_candles": num_candles,
                 'best_val_loss': best_val_loss,
             }
-            print(f"saving checkpoint to {out_dir}")
-            torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+            print(f"saving checkpoint to {training_setup.out_dir}")
+            torch.save(checkpoint, os.path.join(training_setup.out_dir, 'ckpt.pt'))
     data = data.to(device)
     X, y = data[:, :-1].long(), data[:, 1:].long()
     with ctx:
@@ -196,8 +264,9 @@ if __name__ == '__main__':
     learning_rate = recipe.learning_rate * mup_approx_factor
     min_lr = recipe.min_lr * mup_approx_factor
     best_val_loss = float('inf')
-    out_dir = runs_dir / run_name
-    os.makedirs(out_dir, exist_ok=True)
+    if training_setup.out_dir is None:
+        training_setup.out_dir = runs_dir / run_name
+    os.makedirs(training_setup.out_dir, exist_ok=True)
     # Setup
     wandb.init(project="apogee", name=run_name, config={
         "model_config": asdict(model_config),
