@@ -33,6 +33,7 @@ class CryptoDataset(torch.utils.data.Dataset):
         self.metadata["effective_end"] = self.metadata["end"].apply(lambda x: int(min(x, dataset_config.end if dataset_config.end is not None else float("inf"))))
         self.metadata["start_offset"] = (self.metadata["effective_start"] - self.metadata["start"]) // self.metadata["freq"]
         self.metadata["end_offset"] = (self.metadata["effective_end"] - self.metadata["start"]) // self.metadata["freq"]
+        self.metadata = metadata[metadata["effective_end"] > metadata["effective_start"]]
         self.metadata = pd.merge(self.metadata, pd.Series(aggregations, name="effective_frequency"), how="cross")
         self.number_of_samples = (((self.metadata["effective_end"] - self.metadata["effective_start"]) // self.metadata["effective_frequency"]) // self.dataset_config.context_size).values
         self.cumulative_samples = np.cumsum(self.number_of_samples)
