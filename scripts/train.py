@@ -73,13 +73,13 @@ class Recipe:
 
 @dataclass
 class TrainingSetup:
-    recipe_name: str = "gpt2-2.4M-apogee-february-2025"
+    recipe_name: str = "gpt2-21M-apogee-february-2025"
     profile: bool = False
     eval_iters: int = 200
     eval_interval: int = 1000
     out_dir: Optional[str] = None
     watchlist: Tuple[Tuple[str], Tuple[str]] = (("binance.BTCUSDT", "binance.SOLUSDT", "binance.DOGEUSDT"), ("5m", "8h"))
-    drawlist: Tuple[Tuple[str, str]] = (("binance.BTCUSDT", "8h"), ("binance.BTCUSDT", "1m"), ("binance.DOGEUSDT", "1h"))
+    drawlist: Tuple[Tuple[str, str]] = (("binance.BTCUSDT", "8h"), ("binance.BTCUSDT", "1m"), ("binance.DOGEUSDT", "2h"))
     draw_horizon: int = 4
     draw_temperature: float = 1.0
     draw_topk: Optional[int] = None
@@ -154,6 +154,8 @@ def estimate_metrics(
             df.index = pd.date_range(end=pd.Timestamp.now(), periods=len(df), freq=freq)  # Generate timestamps
             # Create candlestick plot
             image_path = os.path.join(training_setup.out_dir, f"candles_{pair}_{freq}.png")
+            if os.path.exists(image_path):
+                os.remove(image_path)
             mpf.plot(
                 df,
                 type="candle",
