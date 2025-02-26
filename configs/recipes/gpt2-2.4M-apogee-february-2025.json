@@ -1,5 +1,5 @@
 {
-    "model_name": "gpt2-2.1M",
+    "model_name": "gpt2-2.4M",
     "data_name": "apogee-february-2025",
     "learning_rate": 1.2e-3,
     "min_lr": 1e-4,

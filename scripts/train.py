@@ -30,7 +30,7 @@ class ComputeConfig:
 class Recipe:
     learning_rate: float = 1.2e-3
     min_lr: float = 1e-4
-    model_name: str = "gpt2-2.1M"
+    model_name: str = "gpt2-21M"
     data_name: str = "apogee-february-2025"
     weight_decay: float = 0.01
     betas: Tuple[float, float] = (0.9, 0.95)
@@ -40,7 +40,7 @@ class Recipe:
 
 @dataclass
 class TrainingSetup:
-    recipe_name: str = "gpt2-2.1M-apogee-february-2025"
+    recipe_name: str = "gpt2-21M-apogee-february-2025"
     profile: bool = False
     eval_iters: int = 200
     eval_interval: int = 1000
@@ -131,7 +131,7 @@ def train_step(
     training_setup: TrainingSetup,
     recipe: Recipe,
 ) -> Tuple[int, float]:
-    lr = get_lr_schedule(recipe)(step)
+    lr = get_lr_schedule(recipe)(step) * model.config.mup_base_dim / model.config.n_embd
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
     t_start = time.time()
@@ -140,6 +140,7 @@ def train_step(
         print(f"step {step}: train loss {metrics['train']['loss']:.4f}, val loss {metrics['val']['loss']:.4f}")
         logging = {
             "step": step,
+            "num_candles": num_candles,
             "lr": lr,  # updated from lr to learning_rate for consistency
         }
         for split in ['train', 'val'] + (['watchlist'] if training_setup.watchlist is not None else []):

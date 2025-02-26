@@ -38,7 +38,6 @@ class CryptoDataset(torch.utils.data.Dataset):
         self.cumulative_samples = np.cumsum(self.number_of_samples)
         self.length = sum(self.number_of_samples)
 
-    
     @property
     def num_candles(self):
         return self.length * self.dataset_config.context_size

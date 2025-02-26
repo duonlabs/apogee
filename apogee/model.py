@@ -133,7 +133,10 @@ class GPT(torch.nn.Module):
 
         self.transformer = torch.nn.ModuleDict(dict(
             wte = torch.nn.Embedding(config.vocab_size, config.n_embd),
-            wpe = torch.nn.Embedding(config.block_size, config.n_embd),
+            # wpe = torch.nn.Embedding(config.block_size, config.n_embd),
+            wbe = torch.nn.Embedding(4, config.n_embd),
+            wce = torch.nn.Embedding(5, config.n_embd),
+            wpe = torch.nn.Embedding(config.block_size // 20, config.n_embd),
             drop = torch.nn.Dropout(config.dropout),
             h = torch.nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
@@ -182,7 +185,8 @@ class GPT(torch.nn.Module):
         pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+        # pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+        pos_emb = self.transformer.wbe(pos % 4) + self.transformer.wce(pos // 4 % 5) + self.transformer.wpe(pos // 20)
         x = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.h:
             x = block(x)
