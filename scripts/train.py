@@ -14,9 +14,9 @@ from pathlib import Path
 from contextlib import nullcontext
 from datetime import datetime
 from dataclasses import asdict, dataclass
-from matplotlib import pyplot as plt
 
 from apogee.data.loading import DataModule, DataConfig, DataloaderConfig, aggregations
+from apogee.tokenizer import Tokenizer
 from apogee.model import GPT, ModelConfig
 
 lt.monkey_patch()
@@ -126,7 +126,7 @@ def estimate_metrics(
                 idx = row.name.item()
                 offset = datamodule.val_dataset.cumulative_samples[idx - 1].item() if idx > 0 else 0
                 samples = []
-                for i in np.random.permutation(m["number_of_samples"][idx])[:dataloader_cfg.batch_size]:
+                for i in np.random.permutation(row["number_of_samples"])[:dataloader_cfg.batch_size]:
                     samples.append(datamodule.val_dataset[offset + i])
                 data = torch.stack(samples).to(device)
                 X, Y = data[:, :-1].long(), data[:, 1:].long()
@@ -148,7 +148,7 @@ def estimate_metrics(
             # run generation
             with ctx:
                 y = model.generate(x, token_horizon, temperature=training_setup.draw_temperature, top_k=training_setup.draw_topk)
-            candles = y[0, 1:].to(torch.uint8).view(-1, 20).view(torch.float32) # [ctx_size, 5]
+            candles = tokenizer.decode(y[0])
             # Convert to DataFrame
             df = pd.DataFrame(candles.cpu().numpy(), columns=["Open", "High", "Low", "Close", "Volume"])
             df.index = pd.date_range(end=pd.Timestamp.now(), periods=len(df), freq=freq)  # Generate timestamps
@@ -282,7 +282,8 @@ if __name__ == '__main__':
     scaler = torch.amp.GradScaler('cuda', enabled=(dtype == 'float16'))
     ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
     ctx =  torch.amp.autocast(device_type=device, dtype=ptdtype)
-    datamodule = DataModule(data_config)
+    tokenizer = Tokenizer()
+    datamodule = DataModule(data_config, tokenizer)
     dataloader_cfg = DataloaderConfig(
         num_workers=compute_config.num_workers,
         batch_size=compute_config.mini_batch_size,

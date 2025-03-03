@@ -7,6 +7,8 @@ from typing import Optional, Tuple, Union
 from pathlib import Path
 from dataclasses import dataclass
 
+from ..tokenizer import Tokenizer
+
 aggregations = {
     "1m": 1 * 60,
     "5m": 5 * 60,
@@ -25,10 +27,11 @@ class DatasetConfig:
     temperature: float = 1.4
 
 class CryptoDataset(torch.utils.data.Dataset):
-    def __init__(self, metadata: pd.DataFrame, dataset_config: DatasetConfig):
+    def __init__(self, metadata: pd.DataFrame, dataset_config: DatasetConfig, tokenizer: Tokenizer):
         self.dataset_config = dataset_config
         self.dataset_path = dataset_config.dataset_path
         self.metadata = metadata
+        self.tokenizer = tokenizer
         self.metadata["key"] = metadata.index
         self.metadata["effective_start"] = self.metadata["start"].apply(lambda x: int(max(x, dataset_config.start if dataset_config.start is not None else float("-inf"))))
         self.metadata["effective_end"] = self.metadata["end"].apply(lambda x: int(min(x, dataset_config.end if dataset_config.end is not None else float("inf"))))
@@ -53,7 +56,7 @@ class CryptoDataset(torch.utils.data.Dataset):
 
     @property
     def num_tokens(self):
-        return self.length * self.dataset_config.context_size * 4 * 5
+        return self.num_candles * self.tokenizer.tokens_per_candle
 
     def __getitem__(self, index: int) -> Tuple[torch.Tensor, torch.Tensor]:
         pair_index = np.searchsorted(self.cumulative_samples, index, side="right")
@@ -73,9 +76,7 @@ class CryptoDataset(torch.utils.data.Dataset):
         buffer[:, 2] = np.nanmin(block[..., 2], axis=1)
         buffer[:, 3] = block[:, -1, 3]
         buffer[:, 4] = np.nansum(block[..., 4], axis=1) if ~np.isnan(block[..., 4]).any() else np.nan
-        buffer = buffer.view(np.uint8).reshape(-1).astype(np.uint16)
-        buffer = np.concatenate([np.array([256], dtype=np.uint16), buffer]) # Prepend <BOS> (Begin of Series) token
-        return torch.tensor(buffer)
+        return self.tokenizer.encode(buffer)
 
     def __len__(self):
         return self.length
@@ -98,15 +99,16 @@ class DataConfig:
     val_temperature: float = 1.0
 
 class DataModule:
-    def __init__(self, config: DataConfig):
+    def __init__(self, config: DataConfig, tokenizer: Tokenizer):
         self.config = config
+        self.tokenizer = tokenizer
         self.dataset_path = Path(huggingface_hub.snapshot_download(repo_id=config.hf_repo, repo_type="dataset", revision=config.revision))
         self.metadata = pd.read_csv(self.dataset_path / "metadata.csv", index_col="key")
         self.metadata["freq"] = self.metadata["freq"].astype(int)
         self.metadata["start"] = self.metadata["start"].astype(int)
         self.metadata["end"] = self.metadata["end"].astype(int) + self.metadata["freq"]
-        self.train_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, end=config.cutoff, temperature=config.training_temperature))
-        self.val_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, start=config.cutoff, temperature=config.val_temperature))
+        self.train_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, end=config.cutoff, temperature=config.training_temperature), tokenizer)
+        self.val_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, start=config.cutoff, temperature=config.val_temperature), tokenizer)
 
     def train_dataloader(self, config: DataloaderConfig):
         return torch.utils.data.DataLoader(self.train_dataset, **config.__dict__)
