@@ -73,7 +73,7 @@ class Recipe:
 
 @dataclass
 class TrainingSetup:
-    recipe_name: str = "gpt2-21M-apogee-february-2025"
+    recipe_name: str = "gpt2-2.4M-apogee-february-2025"
     profile: bool = False
     eval_iters: int = 200
     eval_interval: int = 1000
@@ -124,7 +124,7 @@ def estimate_metrics(
                 print("Inference for", pair, freq)
                 row = m[(m["key"] == pair) & (m["effective_frequency"] == aggregations[freq])].iloc[0]
                 idx = row.name.item()
-                offset = datamodule.val_dataset.cumulative_samples[idx].item()
+                offset = datamodule.val_dataset.cumulative_samples[idx - 1].item() if idx > 0 else 0
                 samples = []
                 for i in np.random.permutation(m["number_of_samples"][idx])[:dataloader_cfg.batch_size]:
                     samples.append(datamodule.val_dataset[offset + i])
@@ -140,7 +140,7 @@ def estimate_metrics(
         for pair, freq in training_setup.drawlist:
             row = m[(m["key"] == pair) & (m["effective_frequency"] == aggregations[freq])].iloc[0]
             idx = row.name.item()
-            offset = datamodule.val_dataset.cumulative_samples[idx].item()
+            offset = datamodule.val_dataset.cumulative_samples[idx-1].item() if idx > 0 else 0
             data = datamodule.val_dataset[offset]
             token_horizon = training_setup.draw_horizon * 20
             start_ids = data[:-token_horizon]
