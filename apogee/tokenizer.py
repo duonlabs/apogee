@@ -20,6 +20,7 @@ class Tokenizer:
         """Tokenize candles into tokens."""
         if isinstance(candles, np.ndarray): # Wrap into a tensor
             candles = torch.tensor(candles)
+        candles = (candles.view(torch.int32) << 1).view(torch.float32) # Erase the sign bit to fit the exponent into the first byte
         if sys.byteorder == 'little':# On little-endian systems, we need to byteswap the data so that msb is first
             candles.untyped_storage().byteswap(torch.float32)
         buffer = candles.view(torch.uint8) # Interpret the data as bytes ("tokenization" step)
@@ -36,4 +37,5 @@ class Tokenizer:
         if sys.byteorder == 'little': # On little-endian systems, we need to byteswap the data back
             # candles_tokens.untyped_storage().byteswap(torch.float32) # <-- This segfaults for some reason
             candles_tokens = candles_tokens.view(torch.uint8).view(*candles_tokens.shape, 4).flip(-1).view(torch.float32).squeeze(-1)# Workaround
+        candles_tokens = -((candles_tokens.view(torch.int32) >> 1) | (1 << 31)).view(torch.float32) # Restore the sign bit
         return candles_tokens
