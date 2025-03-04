@@ -22,7 +22,7 @@ tokens_horizon = candles_horizon * tokenizer.tokens_per_candle
 temperature = 1.0 # 1.0 = no change, < 1.0 = less random, > 1.0 = more random, in predictions
 top_k = None # retain only the top_k most likely tokens, clamp others to have 0 probability
 seed = 42
-dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32' or 'bfloat16' or 'float16'
+dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() and torch.cuda.get_device_capability()[0] >= 8 else 'float16' # 'float32' or 'bfloat16' or 'float16'
 compile = False # use PyTorch 2.0 to compile the model to be faster
 
 device = "cuda" if torch.cuda.is_available() else "cpu"

@@ -1,11 +1,11 @@
 import json
 import os
+import shutil
 import time
 import math
 import pandas as pd
 import torch
 import wandb
-import lovely_tensors as lt
 import numpy as np
 import mplfinance as mpf
 
@@ -19,7 +19,11 @@ from apogee.data.loading import DataModule, DataConfig, DataloaderConfig, aggreg
 from apogee.tokenizer import Tokenizer
 from apogee.model import GPT, ModelConfig
 
-lt.monkey_patch()
+try:
+    import lovely_tensors as lt
+    lt.monkey_patch()
+except ImportError:
+    print("lovely-tensors not found, tensor will be printed the usual way")
 device = "cuda" if torch.cuda.is_available() else "cpu"
 # Define candlestick colors
 # mc = mpf.make_marketcolors(up="green", down="red", edge="black", wick="black", volume="dodgerblue")
@@ -136,6 +140,8 @@ def estimate_metrics(
                     loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), Y.view(-1), reduction='none').view(Y.shape[0], -1, 20)
                 out["watchlist"][f"{pair}.{freq}.last_candle_extropy"] = ((160 - (loss[:, -1] / log_2).sum(-1)) / 160).mean().item()
     if training_setup.drawlist is not None:
+        assets_path = os.path.join(training_setup.out_dir, "assets")
+        os.makedirs(assets_path, exist_ok=True)
         m = datamodule.val_dataset.metadata
         out["plot"] = {}
         for pair, freq in training_setup.drawlist:
@@ -154,7 +160,7 @@ def estimate_metrics(
             df = pd.DataFrame(candles.cpu().numpy(), columns=["Open", "High", "Low", "Close", "Volume"])
             df.index = pd.date_range(end=pd.Timestamp.now(), periods=len(df), freq=freq)  # Generate timestamps
             # Create candlestick plot
-            image_path = os.path.join(training_setup.out_dir, f"candles_{pair}_{freq}.png")
+            image_path = os.path.join(assets_path, f"candles_{pair}_{freq}.png")
             if os.path.exists(image_path):
                 os.remove(image_path)
             mpf.plot(
@@ -271,6 +277,12 @@ if __name__ == '__main__':
     if training_setup.out_dir is None:
         training_setup.out_dir = runs_dir / run_name
     os.makedirs(training_setup.out_dir, exist_ok=True)
+    src_dir = os.path.join(training_setup.out_dir, "apogee")
+    os.makedirs(src_dir, exist_ok=True)
+    shutil.copy("apogee/model.py", src_dir)
+    shutil.copy("apogee/tokenizer.py", src_dir)
+    shutil.copy("apogee/inference/handler.py", training_setup.out_dir)
+    shutil.copy("apogee/inference/README.md", training_setup.out_dir)
     # Setup
     wandb.init(project="apogee", name=run_name, config={
         "model_config": asdict(model_config),
@@ -280,7 +292,7 @@ if __name__ == '__main__':
     })
     torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
     torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
-    dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
+    dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() and torch.cuda.get_device_capability()[0] >= 8 else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
     scaler = torch.amp.GradScaler('cuda', enabled=(dtype == 'float16'))
     ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
     ctx =  torch.amp.autocast(device_type=device, dtype=ptdtype)
