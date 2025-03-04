@@ -70,6 +70,7 @@ class Recipe:
     batch_size: int = 32
     warmup_iters: int = 500
     lr_decay_iters: int = 30000
+    context_size: int = 48
 
 @dataclass
 class TrainingSetup:
@@ -251,6 +252,7 @@ def train_step(
 if __name__ == '__main__':
     # Args
     training_setup = TrainingSetup()
+    tokenizer = Tokenizer()
 
     recipe_path = f"configs/recipes/{training_setup.recipe_name}.json"
     with open(recipe_path, 'r') as f:
@@ -258,9 +260,9 @@ if __name__ == '__main__':
     compute_config = ComputeConfig()
     run_name = f"{training_setup.recipe_name}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     with open(f"configs/models/{recipe.model_name}.json", 'r') as f:
-        model_config = ModelConfig(**json.load(f))
+        model_config = ModelConfig(**json.load(f), block_size=recipe.context_size * tokenizer.tokens_per_candle, vocab_size=tokenizer.vocabulary_size)
     with open(f"configs/data/{recipe.data_name}.json", 'r') as f:
-        data_config = DataConfig(**json.load(f))
+        data_config = DataConfig(**json.load(f), context_size=recipe.context_size)
     
     mup_approx_factor = model_config.mup_base_dim / model_config.n_embd
     learning_rate = recipe.learning_rate * mup_approx_factor
@@ -282,7 +284,6 @@ if __name__ == '__main__':
     scaler = torch.amp.GradScaler('cuda', enabled=(dtype == 'float16'))
     ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
     ctx =  torch.amp.autocast(device_type=device, dtype=ptdtype)
-    tokenizer = Tokenizer()
     datamodule = DataModule(data_config, tokenizer)
     dataloader_cfg = DataloaderConfig(
         num_workers=compute_config.num_workers,

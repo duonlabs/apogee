@@ -108,8 +108,8 @@ class Block(torch.nn.Module):
 
 @dataclass
 class ModelConfig:
-    block_size: int = 480 # context_size * num_tok_per_candles = 24 * 20
-    vocab_size: int = 257 # Number of combinations for a byte + BOS
+    block_size: int
+    vocab_size: int
     n_layer: int = 3
     n_head: Optional[int] = None
     head_dim: Optional[int] = None

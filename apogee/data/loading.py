@@ -21,7 +21,7 @@ aggregations = {
 @dataclass
 class DatasetConfig:
     dataset_path: Union[str, Path]
-    context_size: int = 24
+    context_size: int
     start: Optional[int] = None
     end: Optional[int] = None
     temperature: float = 1.4
@@ -37,9 +37,10 @@ class CryptoDataset(torch.utils.data.Dataset):
         self.metadata["effective_end"] = self.metadata["end"].apply(lambda x: int(min(x, dataset_config.end if dataset_config.end is not None else float("inf"))))
         self.metadata["start_offset"] = (self.metadata["effective_start"] - self.metadata["start"]) // self.metadata["freq"]
         self.metadata["end_offset"] = (self.metadata["effective_end"] - self.metadata["start"]) // self.metadata["freq"]
-        self.metadata = metadata[metadata["effective_end"] > metadata["effective_start"]]
+        self.metadata = metadata[metadata["effective_end"] > metadata["effective_start"]] # Filter out empty intervals
         self.metadata = pd.merge(self.metadata, pd.Series(aggregations, name="effective_frequency"), how="cross")
         self.metadata["number_of_samples"] = ((self.metadata["effective_end"] - self.metadata["effective_start"]) // self.metadata["effective_frequency"]) // self.dataset_config.context_size
+        self.metadata = self.metadata[self.metadata["number_of_samples"] > 0] # Filter out intervals that are too short
         if dataset_config.temperature != 1.0:
             logits = np.log(self.metadata["number_of_samples"].values)  # Update to use self.metadata["number_of_samples"]
             factor = (np.exp(logits / dataset_config.temperature) / np.sum(np.exp(logits / dataset_config.temperature))) * (np.sum(self.metadata["number_of_samples"].values) / self.metadata["number_of_samples"].values)
@@ -93,8 +94,8 @@ class DataloaderConfig:
 class DataConfig:
     hf_repo: str
     cutoff: int
+    context_size: int
     revision: Optional[str] = None
-    context_size: int = 24
     training_temperature: float = 1.4
     val_temperature: float = 1.0
 
