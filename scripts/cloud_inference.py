@@ -4,11 +4,14 @@ import requests
 import numpy as np
 
 API_URL = os.getenv('HF_API_URL')
+HF_TOKEN = os.getenv('HF_TOKEN')
 headers = {
 	"Accept" : "application/json",
-	"Authorization": f"Bearer {os.getenv('HF_TOKEN')}",
+	"Authorization": f"Bearer {HF_TOKEN}",
 	"Content-Type": "application/json" 
 }
+assert API_URL is not None, "Please set the HF_API_URL environment variable"
+assert HF_TOKEN is not None, "Please set the HF_TOKEN environment variable"
 
 def query(payload):
 	response = requests.post(API_URL, headers=headers, json=payload)
