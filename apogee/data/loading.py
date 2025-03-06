@@ -63,7 +63,8 @@ class CryptoDataset(torch.utils.data.Dataset):
         pair_index = np.searchsorted(self.cumulative_samples, index, side="right")
         pair_start = self.cumulative_samples[pair_index -  1] if pair_index > 0 else 0
         block_index = index - pair_start
-        array = np.load(self.dataset_path / f"{self.metadata['key'].values[pair_index].replace('.', '/')}.npy", mmap_mode="r")
+        key = self.metadata['key'].values[pair_index]
+        array = np.load(self.dataset_path / f"{key.replace('.', '/')}.npy", mmap_mode="r")
         array = array[self.metadata["start_offset"].values[pair_index]:self.metadata["end_offset"].values[pair_index]]
         group_size = (self.metadata["effective_frequency"].values[pair_index] // self.metadata["freq"].values[pair_index])
         block = array[
@@ -77,7 +78,7 @@ class CryptoDataset(torch.utils.data.Dataset):
         buffer[:, 2] = np.nanmin(block[..., 2], axis=1)
         buffer[:, 3] = block[:, -1, 3]
         buffer[:, 4] = np.nansum(block[..., 4], axis=1) if ~np.isnan(block[..., 4]).any() else np.nan
-        return self.tokenizer.encode(buffer)
+        return self.tokenizer.encode(key, buffer)
 
     def __len__(self):
         return self.length

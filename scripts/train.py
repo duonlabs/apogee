@@ -78,7 +78,7 @@ class Recipe:
 
 @dataclass
 class TrainingSetup:
-    recipe_name: str = "gpt2-2.4M-apogee-february-2025"
+    recipe_name: str = "gpt2-21M-apogee-february-2025"
     profile: bool = False
     eval_iters: int = 200
     eval_interval: int = 1000
@@ -112,7 +112,7 @@ def estimate_metrics(
             X, Y = data[:, :-1].long(), data[:, 1:].long()
             with ctx:
                 logits = model(X)
-                loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), Y.view(-1), reduction='none').view(Y.shape[0], -1, 20)
+                loss = torch.nn.functional.cross_entropy(logits[:, model.config.meta_size:].reshape(-1, logits.size(-1)), Y[:, model.config.meta_size:].reshape(-1), reduction='none').view(Y.shape[0], -1, 20)
             metrics["loss"][k] = loss.mean().item()
             extropy = (160 - (loss / log_2).sum(-1)) / 160
             metrics["extropy"][k] = extropy.mean().item()
@@ -137,7 +137,7 @@ def estimate_metrics(
                 X, Y = data[:, :-1].long(), data[:, 1:].long()
                 with ctx:
                     logits = model(X)
-                    loss = torch.nn.functional.cross_entropy(logits.view(-1, logits.size(-1)), Y.view(-1), reduction='none').view(Y.shape[0], -1, 20)
+                    loss = torch.nn.functional.cross_entropy(logits[:, model.config.meta_size:].reshape(-1, logits.size(-1)), Y[:, model.config.meta_size:].reshape(-1), reduction='none').view(Y.shape[0], -1, 20)
                 out["watchlist"][f"{pair}.{freq}.last_candle_extropy"] = ((160 - (loss[:, -1] / log_2).sum(-1)) / 160).mean().item()
     if training_setup.drawlist is not None:
         assets_path = os.path.join(training_setup.out_dir, "assets")
@@ -155,7 +155,7 @@ def estimate_metrics(
             # run generation
             with ctx:
                 y = model.generate(x, token_horizon, temperature=training_setup.draw_temperature, top_k=training_setup.draw_topk)
-            candles = tokenizer.decode(y[0])
+            _, candles = tokenizer.decode(y[0])
             # Convert to DataFrame
             df = pd.DataFrame(candles.cpu().numpy(), columns=["Open", "High", "Low", "Close", "Volume"])
             df.index = pd.date_range(end=pd.Timestamp.now(), periods=len(df), freq=freq)  # Generate timestamps
@@ -266,7 +266,7 @@ if __name__ == '__main__':
     compute_config = ComputeConfig()
     run_name = f"{training_setup.recipe_name}-{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     with open(f"configs/models/{recipe.model_name}.json", 'r') as f:
-        model_config = ModelConfig(**json.load(f), block_size=recipe.context_size * tokenizer.tokens_per_candle, vocab_size=tokenizer.vocabulary_size)
+        model_config = ModelConfig(**json.load(f), block_size=recipe.context_size * tokenizer.tokens_per_candle + tokenizer.meta_context_len, vocab_size=tokenizer.vocabulary_size, meta_size=tokenizer.meta_context_len)
     with open(f"configs/data/{recipe.data_name}.json", 'r') as f:
         data_config = DataConfig(**json.load(f), context_size=recipe.context_size)
     

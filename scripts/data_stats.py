@@ -5,9 +5,11 @@ import torch
 from tqdm import tqdm
 
 from apogee.data.loading import DataModule, DataConfig, DataloaderConfig
+from apogee.tokenizer import Tokenizer
 
-def process_data_stats(hf_repo: str = "duonlabs/apogee", cutoff: int = 1730332740, timeout: int = 60, num_workers: int = 4):
-    datamodule = DataModule(DataConfig(hf_repo=hf_repo, cutoff=cutoff))
+def process_data_stats(hf_repo: str = "duonlabs/apogee", cutoff: int = 1730332740, timeout: int = 60, num_workers: int = 4, context_size: int = 48):
+    tokenizer = Tokenizer()
+    datamodule = DataModule(DataConfig(hf_repo=hf_repo, cutoff=cutoff, context_size=context_size), tokenizer=tokenizer)
     print("Dataset stats:")
     print("Train dataset:")
     print(f"Number of tokens: {datamodule.train_dataset.num_tokens / 1_000_000_000:.2f}G")
