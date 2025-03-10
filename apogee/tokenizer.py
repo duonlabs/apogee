@@ -4,18 +4,20 @@ import torch
 import numpy as np
 
 from typing import Tuple, Union
+from .data.aggregation import freq2sec
 
 class Tokenizer:
-    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 "
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 " # Allowed characters in pair names
+    freqs = [k for k, _ in sorted(freq2sec.items(), key=lambda x: x[1])] # Sort the freq2sec by duration and extract the keys
     pair_name_max_len: int = 10
-    vocabulary_size: int = 256 + 1 + len(letters) # 256 possible bytes + 1 for <BOS> token + len(letters) for pair name
+    vocabulary_size: int = 256 + 1 + len(letters) + len(freqs) # 256 possible bytes + 1 for <BOS> token + len(letters) for pair name
     tokens_per_candle: int = 4*5
-    meta_context_len: int = 10
+    meta_context_len: int = 11
 
-    def encode(self, key: str, candles: Union[np.array, torch.Tensor]) -> torch.Tensor:
+    def encode(self, key: str, freq: str, candles: Union[np.array, torch.Tensor]) -> torch.Tensor:
         """Tokenize candles into tokens."""
         _, pair = key.split(".") # Split the key into exchange and pair
-        meta = torch.tensor([257 + Tokenizer.letters.index(letter) for letter in pair.ljust(self.pair_name_max_len)], dtype=torch.uint16)
+        meta = torch.tensor([257 + Tokenizer.letters.index(letter) for letter in pair.ljust(self.pair_name_max_len)] + [257 + len(Tokenizer.letters) + Tokenizer.freqs.index(freq)], dtype=torch.uint16) # Encode the pair name and frequency
         if isinstance(candles, np.ndarray): # Wrap into a tensor
             candles = torch.tensor(candles)
         candles = (candles.view(torch.int32) << 1).view(torch.float32) # Erase the sign bit to fit the exponent into the first byte
@@ -26,7 +28,7 @@ class Tokenizer:
         buffer = torch.cat([meta, torch.tensor([256], dtype=torch.uint16), buffer]) # Prepend <BOS> (Begin of Series) token
         return buffer
     
-    def decode(self, tokens: torch.Tensor) -> Tuple[str, torch.Tensor]:
+    def decode(self, tokens: torch.Tensor) -> Tuple[str, str, torch.Tensor]:
         """Decode tokens into candles."""
         tokens = tokens.long()
         meta_tokens, candles_tokens = tokens[..., :Tokenizer.meta_context_len], tokens[..., Tokenizer.meta_context_len + 1:] # Remove <BOS> token
@@ -36,5 +38,7 @@ class Tokenizer:
             # candles_tokens.untyped_storage().byteswap(torch.float32) # <-- This segfaults for some reason
             candles_tokens = candles_tokens.view(torch.uint8).view(*candles_tokens.shape, 4).flip(-1).view(torch.float32).squeeze(-1)# Workaround
         candles_tokens = -((candles_tokens.view(torch.int32) >> 1) | (1 << 31)).view(torch.float32) # Restore the sign bit
-        pair = "".join(Tokenizer.letters[token-257] for token in meta_tokens.tolist()).rstrip(" ")
-        return pair, candles_tokens
+        pair_meta, freq_meta = meta_tokens[:-1], meta_tokens[-1] # Extract pair and frequency tokens
+        pair = "".join(Tokenizer.letters[token-257] for token in pair_meta.tolist()).rstrip(" ")
+        freq = Tokenizer.freqs[freq_meta - (257 + len(Tokenizer.letters))]
+        return pair, freq, candles_tokens

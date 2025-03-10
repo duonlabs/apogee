@@ -15,7 +15,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from dataclasses import asdict, dataclass
 
-from apogee.data.loading import DataModule, DataConfig, DataloaderConfig, aggregations
+from apogee.data.loading import DataModule, DataConfig, DataloaderConfig, freq2sec
 from apogee.tokenizer import Tokenizer
 from apogee.model import GPT, ModelConfig
 
@@ -127,7 +127,7 @@ def estimate_metrics(
             assert pair in datamodule.val_dataset.metadata["key"].values
             for freq in training_setup.watchlist[1]:
                 print("Inference for", pair, freq)
-                row = m[(m["key"] == pair) & (m["effective_frequency"] == aggregations[freq])].iloc[0]
+                row = m[(m["key"] == pair) & (m["effective_frequency"] == freq2sec[freq])].iloc[0]
                 idx = row.name.item()
                 offset = datamodule.val_dataset.cumulative_samples[idx - 1].item() if idx > 0 else 0
                 samples = []
@@ -145,7 +145,7 @@ def estimate_metrics(
         m = datamodule.val_dataset.metadata
         out["plot"] = {}
         for pair, freq in training_setup.drawlist:
-            row = m[(m["key"] == pair) & (m["effective_frequency"] == aggregations[freq])].iloc[0]
+            row = m[(m["key"] == pair) & (m["effective_frequency"] == freq2sec[freq])].iloc[0]
             idx = row.name.item()
             offset = datamodule.val_dataset.cumulative_samples[idx-1].item() if idx > 0 else 0
             data = datamodule.val_dataset[offset]
@@ -155,7 +155,7 @@ def estimate_metrics(
             # run generation
             with ctx:
                 y = model.generate(x, token_horizon, temperature=training_setup.draw_temperature, top_k=training_setup.draw_topk)
-            _, candles = tokenizer.decode(y[0])
+            _, _, candles = tokenizer.decode(y[0])
             # Convert to DataFrame
             df = pd.DataFrame(candles.cpu().numpy(), columns=["Open", "High", "Low", "Close", "Volume"])
             df.index = pd.date_range(end=pd.Timestamp.now(), periods=len(df), freq=freq)  # Generate timestamps

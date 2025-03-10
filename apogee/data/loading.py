@@ -7,16 +7,8 @@ from typing import Optional, Tuple, Union
 from pathlib import Path
 from dataclasses import dataclass
 
+from .aggregation import freq2sec, sec2freq
 from ..tokenizer import Tokenizer
-
-aggregations = {
-    "1m": 1 * 60,
-    "5m": 5 * 60,
-    "30m": 30 * 60,
-    "2h": 2 * 60 * 60,
-    "8h": 8 * 60 * 60,
-    "1d": 24 * 60 * 60,
-}
 
 @dataclass
 class DatasetConfig:
@@ -38,7 +30,7 @@ class CryptoDataset(torch.utils.data.Dataset):
         self.metadata["start_offset"] = (self.metadata["effective_start"] - self.metadata["start"]) // self.metadata["freq"]
         self.metadata["end_offset"] = (self.metadata["effective_end"] - self.metadata["start"]) // self.metadata["freq"]
         self.metadata = metadata[metadata["effective_end"] > metadata["effective_start"]] # Filter out empty intervals
-        self.metadata = pd.merge(self.metadata, pd.Series(aggregations, name="effective_frequency"), how="cross")
+        self.metadata = pd.merge(self.metadata, pd.Series(freq2sec, name="effective_frequency"), how="cross")
         self.metadata["number_of_samples"] = ((self.metadata["effective_end"] - self.metadata["effective_start"]) // self.metadata["effective_frequency"]) // self.dataset_config.context_size
         self.metadata = self.metadata[self.metadata["number_of_samples"] > 0] # Filter out intervals that are too short
         if dataset_config.temperature != 1.0:
@@ -64,9 +56,10 @@ class CryptoDataset(torch.utils.data.Dataset):
         pair_start = self.cumulative_samples[pair_index -  1] if pair_index > 0 else 0
         block_index = index - pair_start
         key = self.metadata['key'].values[pair_index]
+        secs = self.metadata['effective_frequency'].values[pair_index]
         array = np.load(self.dataset_path / f"{key.replace('.', '/')}.npy", mmap_mode="r")
         array = array[self.metadata["start_offset"].values[pair_index]:self.metadata["end_offset"].values[pair_index]]
-        group_size = (self.metadata["effective_frequency"].values[pair_index] // self.metadata["freq"].values[pair_index])
+        group_size = (secs // self.metadata["freq"].values[pair_index])
         block = array[
             array.shape[0] - (block_index + 1) * self.dataset_config.context_size * group_size:
             array.shape[0] - block_index * self.dataset_config.context_size * group_size
@@ -78,7 +71,7 @@ class CryptoDataset(torch.utils.data.Dataset):
         buffer[:, 2] = np.nanmin(block[..., 2], axis=1)
         buffer[:, 3] = block[:, -1, 3]
         buffer[:, 4] = np.nansum(block[..., 4], axis=1) if ~np.isnan(block[..., 4]).any() else np.nan
-        return self.tokenizer.encode(key, buffer)
+        return self.tokenizer.encode(key, sec2freq[secs], buffer)
 
     def __len__(self):
         return self.length

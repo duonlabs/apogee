@@ -1,7 +1,7 @@
 from contextlib import nullcontext
 import torch
 
-from apogee.data.loading import DataModule, DataConfig, aggregations
+from apogee.data.loading import DataModule, DataConfig, freq2sec
 from apogee.tokenizer import Tokenizer
 from apogee.model import GPT, ModelConfig
 
@@ -14,7 +14,7 @@ agg = "8h"
 tokenizer = Tokenizer()
 datamodule = DataModule(DataConfig(hf_repo=hf_repo, cutoff=cutoff), tokenizer)
 df=datamodule.val_dataset.metadata
-row = df[(df["key"]==coin)&(df["effective_frequency"]==aggregations[agg])]
+row = df[(df["key"]==coin)&(df["effective_frequency"]==freq2sec[agg])]
 offset=datamodule.val_dataset.cumulative_samples[row.iloc[0].name.item()].item()
 num_samples = 10 # number of samples to draw
 candles_horizon = 1 # number of tokens generated in each sample
