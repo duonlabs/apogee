@@ -17,6 +17,8 @@ class DatasetConfig:
     start: Optional[int] = None
     end: Optional[int] = None
     temperature: float = 1.4
+    max_candles: Optional[int] = None
+    deduplicate: bool = False
 
 class CryptoDataset(torch.utils.data.Dataset):
     def __init__(self, metadata: pd.DataFrame, dataset_config: DatasetConfig, tokenizer: Tokenizer):
@@ -29,20 +31,29 @@ class CryptoDataset(torch.utils.data.Dataset):
         self.metadata["effective_end"] = self.metadata["end"].apply(lambda x: int(min(x, dataset_config.end if dataset_config.end is not None else float("inf"))))
         self.metadata["start_offset"] = (self.metadata["effective_start"] - self.metadata["start"]) // self.metadata["freq"]
         self.metadata["end_offset"] = (self.metadata["effective_end"] - self.metadata["start"]) // self.metadata["freq"]
+        self.metadata["group"] = self.metadata["key"].apply(lambda x: x.split(".")[1].replace("FDUSD", "USD").replace("USDT", "USD").replace("USDC", "USD"))
         self.metadata = metadata[metadata["effective_end"] > metadata["effective_start"]] # Filter out empty intervals
+        if dataset_config.deduplicate:
+            self.metadata = self.metadata.loc[self.metadata.groupby("group", sort=False)["effective_start"].idxmin()]
         self.metadata = pd.merge(self.metadata, pd.Series(freq2sec, name="effective_frequency"), how="cross")
         self.metadata["number_of_samples"] = ((self.metadata["effective_end"] - self.metadata["effective_start"]) // self.metadata["effective_frequency"]) // self.dataset_config.context_size
         self.metadata = self.metadata[self.metadata["number_of_samples"] > 0] # Filter out intervals that are too short
-        if dataset_config.temperature != 1.0:
+        if dataset_config.temperature != 1.0 or dataset_config.max_candles is not None:
+            n_samples = np.sum(self.metadata["number_of_samples"].values)
+            if dataset_config.max_candles is not None:
+                n_samples = min(n_samples, dataset_config.max_candles // dataset_config.context_size)
             logits = np.log(self.metadata["number_of_samples"].values)  # Update to use self.metadata["number_of_samples"]
-            factor = (np.exp(logits / dataset_config.temperature) / np.sum(np.exp(logits / dataset_config.temperature))) * (np.sum(self.metadata["number_of_samples"].values) / self.metadata["number_of_samples"].values)
+            target_dist = (np.exp(logits / dataset_config.temperature) / np.sum(np.exp(logits / dataset_config.temperature)))
+            factor = target_dist * (n_samples / self.metadata["number_of_samples"].values)
+            print("Max repetitions:", np.max(factor))
             repeats = (np.floor(factor).astype(np.int32)) + 1
             self.metadata = self.metadata.iloc[np.repeat(np.arange(len(self.metadata)), repeats)].reset_index(drop=True)
             last_selectors = np.cumsum(repeats) - 1
             self.metadata.loc[np.cumsum(repeats) - 1, "number_of_samples"] = np.round((factor % 1) * self.metadata.loc[last_selectors, "number_of_samples"]).astype(np.int32)
         self.cumulative_samples = np.cumsum(self.metadata["number_of_samples"].values)
         self.length = sum(self.metadata["number_of_samples"].values)
-
+        print("Freq distribution:")
+        print(self.metadata[["effective_frequency", "number_of_samples"]].groupby(by=["effective_frequency"], sort=False).sum() / np.sum(self.metadata["number_of_samples"].values))
     @property
     def num_candles(self):
         return self.length * self.dataset_config.context_size
@@ -90,8 +101,9 @@ class DataConfig:
     cutoff: int
     context_size: int
     revision: Optional[str] = None
-    training_temperature: float = 1.4
+    training_temperature: float = 3.0
     val_temperature: float = 1.0
+    max_train_candles: Optional[int] = None
 
 class DataModule:
     def __init__(self, config: DataConfig, tokenizer: Tokenizer):
@@ -102,8 +114,8 @@ class DataModule:
         self.metadata["freq"] = self.metadata["freq"].astype(int)
         self.metadata["start"] = self.metadata["start"].astype(int)
         self.metadata["end"] = self.metadata["end"].astype(int) + self.metadata["freq"]
-        self.train_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, end=config.cutoff, temperature=config.training_temperature), tokenizer)
-        self.val_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, start=config.cutoff, temperature=config.val_temperature), tokenizer)
+        self.train_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, end=config.cutoff, temperature=config.training_temperature, max_candles=config.max_train_candles, deduplicate=True), tokenizer)
+        self.val_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, start=config.cutoff, temperature=config.val_temperature, deduplicate=False), tokenizer)
 
     def train_dataloader(self, config: DataloaderConfig):
         return torch.utils.data.DataLoader(self.train_dataset, **config.__dict__)
