@@ -104,6 +104,7 @@ class DataConfig:
     training_temperature: float = 3.0
     val_temperature: float = 1.0
     max_train_candles: Optional[int] = None
+    train_deduplicate: bool = False
 
 class DataModule:
     def __init__(self, config: DataConfig, tokenizer: Tokenizer):
@@ -114,7 +115,7 @@ class DataModule:
         self.metadata["freq"] = self.metadata["freq"].astype(int)
         self.metadata["start"] = self.metadata["start"].astype(int)
         self.metadata["end"] = self.metadata["end"].astype(int) + self.metadata["freq"]
-        self.train_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, end=config.cutoff, temperature=config.training_temperature, max_candles=config.max_train_candles, deduplicate=True), tokenizer)
+        self.train_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, end=config.cutoff, temperature=config.training_temperature, max_candles=config.max_train_candles, deduplicate=config.train_deduplicate), tokenizer)
         self.val_dataset = CryptoDataset(self.metadata, DatasetConfig(self.dataset_path, config.context_size, start=config.cutoff, temperature=config.val_temperature, deduplicate=False), tokenizer)
 
     def train_dataloader(self, config: DataloaderConfig):
