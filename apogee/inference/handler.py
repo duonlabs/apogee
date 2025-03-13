@@ -48,13 +48,15 @@ class EndpointHandler:
             self.model(torch.randint(0, self.tokenizer.vocabulary_size, (1, self.config.block_size), device=self.device))
         print("Model ready ! ✅")
         # Precompute useful values
-        self.max_candles = self.config.block_size // self.tokenizer.tokens_per_candle
+        self.max_candles = (self.config.block_size - self.config.meta_size) // self.tokenizer.tokens_per_candle
 
     def __call__(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Args:
             data (Dict[str, Any]):
-                inputs: Dict[str, List[float]] with keys:
+                inputs: Dict[str, Union[str, List[float]]] with keys:
+                    pair: Pair symbol
+                    frequency: Frequency of the time serie (1m, 5m, 30m, 2h, 8h, 1d)
                     timestamps: Timestamps of the time serie
                     open: Open prices
                     high: High prices
@@ -77,9 +79,13 @@ class EndpointHandler:
         # Unpack input data
         inputs = data.pop("inputs", data)
         # Validate the inputs
-        assert "timestamps" in inputs and "open" in inputs and "high" in inputs and "low" in inputs and "close" in inputs and "volume" in inputs, "Required keys: timestamps, open, high, low, close, volume"
-        assert isinstance(inputs["timestamps"], list) and isinstance(inputs["open"], list) and isinstance(inputs["high"], list) and isinstance(inputs["low"], list) and isinstance(inputs["close"], list) and isinstance(inputs["volume"], list), "Inputs must be lists"
+        assert "pair" in inputs and "frequency" in inputs and "timestamps" in inputs and "open" in inputs and "high" in inputs and "low" in inputs and "close" in inputs and "volume" in inputs, "Required keys: pair, frequency, timestamps, open, high, low, close, volume"
+        assert isinstance(inputs["pair"], str) and isinstance(inputs["frequency"], str) and isinstance(inputs["timestamps"], list) and isinstance(inputs["open"], list) and isinstance(inputs["high"], list) and isinstance(inputs["low"], list) and isinstance(inputs["close"], list) and isinstance(inputs["volume"], list), "Inputs must be lists"
+        assert inputs["frequency"] in ["1m", "5m", "30m", "2h", "8h", "1d"], "Invalid frequency"
         assert len(inputs["timestamps"]) == len(inputs["open"]) == len(inputs["high"]) == len(inputs["low"]) == len(inputs["close"]) == len(inputs["volume"]), "Inputs must have the same length"
+        pair, freq = inputs["pair"], inputs["frequency"]
+        pair = "".join(pair.split("/"))
+        pair = f"binance.{pair.upper()}" if "." not in pair else pair
         timestamps = torch.tensor(inputs["timestamps"])
         samples = torch.tensor([inputs["open"], inputs["high"], inputs["low"], inputs["close"], inputs["volume"]], dtype=torch.float32).T.contiguous()
         steps = data.pop("steps", 4)
@@ -94,7 +100,7 @@ class EndpointHandler:
             torch.cuda.manual_seed(seed)
         # Generate scenarios
         samples = samples[-self.max_candles + steps:] # Keep only the last candles that fit in the model's context
-        tokens = self.tokenizer.encode(samples) # Encode the samples into tokens
+        tokens = self.tokenizer.encode(pair, freq, samples) # Encode the samples into tokens
         tokens = tokens.to(self.device).unsqueeze(0).long() # Add a batch dimension
         with torch.no_grad(), self.ctx:
             for _ in range(steps * self.tokenizer.tokens_per_candle):
@@ -112,7 +118,8 @@ class EndpointHandler:
                 # append sampled index to the running sequence and continue
                 tokens = torch.cat((tokens, next_tokens), dim=1)
         # Decode the tokens back into samples
-        scenarios = self.tokenizer.decode(tokens)[:, -steps:]
+        _, _, scenarios = self.tokenizer.decode(tokens)
+        scenarios = scenarios[:, -steps:]
         print(f"Generated {n_scenarios} scenarios in {time.time() - t_start:.2f} seconds ⏱")
         return {
             "timestamps": (timestamps[-1] + torch.arange(1, steps+1) * torch.median(torch.diff(timestamps)).item()).tolist(),
@@ -131,6 +138,8 @@ if __name__ == "__main__":
         data = pd.read_csv(f)
     y = handler({
         "inputs": {
+            "pair": "binance.BTCUSDT",
+            "frequency": "1m",
             "timestamps": data[data.columns[0]].tolist(),
             "open": data[data.columns[1]].tolist(),
             "high": data[data.columns[2]].tolist(),

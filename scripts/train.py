@@ -278,9 +278,12 @@ if __name__ == '__main__':
         training_setup.out_dir = runs_dir / run_name
     os.makedirs(training_setup.out_dir, exist_ok=True)
     src_dir = os.path.join(training_setup.out_dir, "apogee")
+    data_src_dir = os.path.join(src_dir, "data")
     os.makedirs(src_dir, exist_ok=True)
+    os.makedirs(data_src_dir, exist_ok=True)
     shutil.copy("apogee/model.py", src_dir)
     shutil.copy("apogee/tokenizer.py", src_dir)
+    shutil.copy("apogee/data/aggregation.py", data_src_dir)
     shutil.copy("apogee/inference/handler.py", training_setup.out_dir)
     shutil.copy("apogee/inference/README.md", training_setup.out_dir)
     # Setup
