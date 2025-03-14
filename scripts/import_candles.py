@@ -6,7 +6,9 @@ import huggingface_hub
 import pandas as pd
 import numpy as np
 
-from typing import Union
+from typing import Dict, List, Optional, Tuple, Union
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 
 from apogee.data.sourcing.binance import get_pair_candles
@@ -32,37 +34,46 @@ def get_metadata(repo_id: str) -> pd.DataFrame:
         raise e
     return pd.read_csv(io.StringIO(content), index_col="key")
 
-def save_pair_candles(pair: str, repo_id: str = "duonlabs/apogee", n_workers: int = 10):
+def compute_info_and_buffer(pair: str, n_workers: int = 10) -> Optional[Tuple[str, Dict[str, int], bytes]]:
+    try:
+        df = get_pair_candles(pair, n_workers)
+        timestamps = df["timestamp"].values
+        start = timestamps[0]
+        end = timestamps[-1]
+        df = df.drop(columns=["timestamp"])
+        buffer = np.full(((end-start) // 60 + 1, 5), np.nan, dtype=np.float32)
+        i_start = 0
+        for i_end in (np.where(np.diff(timestamps)!=60)[0]+1).tolist() + [len(timestamps)]:
+            ts_start, ts_end = timestamps[i_start], timestamps[i_end-1]
+            buffer[(ts_start - start) // 60:1+(ts_end - start) // 60] = df.values[i_start:i_end]
+            if i_end < len(timestamps):
+                i_start = i_end + 1 if (timestamps[i_end]-timestamps[i_end-1])<60 else i_end
+        npy_buffer = io.BytesIO()
+        np.save(npy_buffer, buffer)
+        return pair, {
+            "start": start,
+            "end": end,
+            "freq": 60,
+        }, npy_buffer.getvalue()
+    except Exception as e:
+        print(f"Failed to compute info and buffer for {pair}: {e}")
+        return None
+
+def save_pair_candles(pairs: List[str], repo_id: str = "duonlabs/apogee", n_workers: int = 10):
+    provider = "binance"
     metadata = get_metadata(repo_id)
-    is_new = pair not in metadata.index
-    df = get_pair_candles(pair, n_workers)
-    timestamps = df["timestamp"].values
-    start = timestamps[0]
-    end = timestamps[-1]
-    df = df.drop(columns=["timestamp"])
-    buffer = np.full(((end-start) // 60 + 1, 5), np.nan, dtype=np.float32)
-    i_start = 0
-    for i_end in (np.where(np.diff(timestamps)!=60)[0]+1).tolist() + [len(timestamps)]:
-        ts_start, ts_end = timestamps[i_start], timestamps[i_end-1]
-        buffer[(ts_start - start) // 60:1+(ts_end - start) // 60] = df.values[i_start:i_end]
-        if i_end < len(timestamps):
-            i_start = i_end + 1 if (timestamps[i_end]-timestamps[i_end-1])<60 else i_end
-    key = f"binance.{pair}"
-    metadata.loc[key] = {
-        "start": start,
-        "end": end,
-        "freq": 60,
-    }
-    npy_buffer = io.BytesIO()
-    np.save(npy_buffer, buffer)
-    provider, pair = key.split(".")
+    operations = []
+    with ThreadPoolExecutor(max_workers=n_workers) as executor:
+        for computed in executor.map(partial(compute_info_and_buffer, n_workers=n_workers), pairs):
+            if computed is None:
+                continue
+            pair, info, buffer = computed
+            metadata.loc[f"{provider}.{pair}"] = info
+            operations.append(huggingface_hub.CommitOperationAdd(f"{provider}/{pair}.npy", buffer))
     huggingface_hub.create_commit(
         repo_id=repo_id,
-        operations=[
-            huggingface_hub.CommitOperationAdd(f"{provider}/{pair}.npy", npy_buffer.getvalue()),
-            huggingface_hub.CommitOperationAdd("metadata.csv", metadata.to_csv().encode("utf-8")),
-        ],
-        commit_message=f"Imported {pair}" if is_new else f"Updated {pair}",
+        operations=operations + [huggingface_hub.CommitOperationAdd("metadata.csv", metadata.to_csv().encode("utf-8"))],
+        commit_message=f"Updated {', '.join(pairs)}",
         repo_type="dataset",
     )
 
@@ -73,5 +84,14 @@ if __name__ == '__main__':
     parser.add_argument("--repo_id", type=str, default="duonlabs/apogee", help="The Hugging Face Hub repository ID to save the data.")
     parser.add_argument("--n_workers", type=int, default=10, help="Number of worker threads to use for downloading data.")
     args = parser.parse_args()
+    # Process pair string or file
+    if isinstance(args.pair, str):
+        if Path(args.pair).exists():
+            with open(args.pair, "r") as f:
+                args.pair = f.read().splitlines()
+        else:
+            args.pair = args.pair.split(",")
+    # Login to Hugging Face Hub
     huggingface_hub.login(token=os.getenv("HF_TOKEN"))
+    # Save pair candles data
     save_pair_candles(args.pair, repo_id=args.repo_id, n_workers=args.n_workers)
