@@ -36,8 +36,10 @@ class CryptoDataset(torch.utils.data.Dataset):
         if dataset_config.deduplicate:
             self.metadata = self.metadata.loc[self.metadata.groupby("group", sort=False)["effective_start"].idxmin()]
         self.metadata = pd.merge(self.metadata, pd.Series(freq2sec, name="effective_frequency"), how="cross")
-        self.metadata["number_of_samples"] = ((self.metadata["effective_end"] - self.metadata["effective_start"]) // self.metadata["effective_frequency"]) // self.dataset_config.context_size
-        self.metadata = self.metadata[self.metadata["number_of_samples"] > 0] # Filter out intervals that are too short
+        self.metadata["number_of_candles"] = (self.metadata["effective_end"] - self.metadata["effective_start"]) // self.metadata["effective_frequency"]
+        self.metadata["number_of_samples"] = self.metadata["number_of_candles"] // self.dataset_config.context_size
+        self.metadata["candles_remainder"] = self.metadata["number_of_candles"] % self.dataset_config.context_size
+        self.metadata = self.metadata[self.metadata["number_of_samples"] > 1] # Filter out intervals that are too short
         if dataset_config.temperature != 1.0 or dataset_config.max_candles is not None:
             n_samples = np.sum(self.metadata["number_of_samples"].values)
             if dataset_config.max_candles is not None:
@@ -47,9 +49,16 @@ class CryptoDataset(torch.utils.data.Dataset):
             factor = target_dist * (n_samples / self.metadata["number_of_samples"].values)
             print("Max repetitions:", np.max(factor))
             repeats = (np.floor(factor).astype(np.int32)) + 1
-            self.metadata = self.metadata.iloc[np.repeat(np.arange(len(self.metadata)), repeats)].reset_index(drop=True)
+            rep_offset_steps_size = self.dataset_config.context_size / repeats
+            repeated_ids = np.repeat(np.arange(len(self.metadata)), repeats)
+            rep_offsets = np.floor((np.arange(len(repeated_ids)) - np.maximum.accumulate(np.where(np.r_[True, repeated_ids[1:] != repeated_ids[:-1]], np.arange(len(repeated_ids)), 0))) * np.repeat(rep_offset_steps_size, repeats)).astype(int)
+            self.metadata = self.metadata.iloc[repeated_ids].reset_index(drop=True)
             last_selectors = np.cumsum(repeats) - 1
-            self.metadata.loc[np.cumsum(repeats) - 1, "number_of_samples"] = np.round((factor % 1) * self.metadata.loc[last_selectors, "number_of_samples"]).astype(np.int32)
+            self.metadata.loc[last_selectors, "number_of_samples"] = np.round((factor % 1) * self.metadata.loc[last_selectors, "number_of_samples"]).astype(np.int32)
+            self.metadata["number_of_samples"] -= (rep_offsets > self.metadata["candles_remainder"]).astype(self.metadata["number_of_samples"].dtype)
+            self.metadata["rep_offsets"] = rep_offsets
+        else:
+            self.metadata["rep_offsets"] = 0
         self.cumulative_samples = np.cumsum(self.metadata["number_of_samples"].values)
         self.length = sum(self.metadata["number_of_samples"].values)
         print("Freq distribution:")
@@ -66,14 +75,15 @@ class CryptoDataset(torch.utils.data.Dataset):
         pair_index = np.searchsorted(self.cumulative_samples, index, side="right")
         pair_start = self.cumulative_samples[pair_index -  1] if pair_index > 0 else 0
         block_index = index - pair_start
-        key = self.metadata['key'].values[pair_index]
-        secs = self.metadata['effective_frequency'].values[pair_index]
+        row = self.metadata.iloc[pair_index]
+        key = row['key']
+        secs = row['effective_frequency']
         array = np.load(self.dataset_path / f"{key.replace('.', '/')}.npy", mmap_mode="r")
-        array = array[self.metadata["start_offset"].values[pair_index]:self.metadata["end_offset"].values[pair_index]]
-        group_size = (secs // self.metadata["freq"].values[pair_index])
+        array = array[row["start_offset"]:row["end_offset"]]
+        group_size = (secs // row["freq"])
         block = array[
-            array.shape[0] - (block_index + 1) * self.dataset_config.context_size * group_size:
-            array.shape[0] - block_index * self.dataset_config.context_size * group_size
+            array.shape[0] - ((block_index + 1) * self.dataset_config.context_size + row["rep_offsets"]) * group_size:
+            array.shape[0] - (block_index * self.dataset_config.context_size + row["rep_offsets"]) * group_size
         ]
         block = block.reshape(self.dataset_config.context_size, group_size, 5)
         buffer = np.empty((self.dataset_config.context_size, 5), dtype=np.float32)
