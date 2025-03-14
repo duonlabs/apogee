@@ -127,9 +127,9 @@ def get_pair_candles(pair: str, n_workers: int = 10) -> pd.DataFrame:
     values = map(lambda x: base_url + x["Key"], files)
     files = dict(zip(keys, values))
     dfs = []
-
     with ThreadPoolExecutor(max_workers=n_workers) as executor:
         dfs = list(executor.map(load_zip_file, sorted(files.values())))
     df = pd.concat(dfs, ignore_index=True)
+    del dfs
     df.index = df["timestamp"]
     return df.sort_index()

@@ -50,6 +50,7 @@ def compute_info_and_buffer(pair: str, n_workers: int = 10) -> Optional[Tuple[st
                 i_start = i_end + 1 if (timestamps[i_end]-timestamps[i_end-1])<60 else i_end
         npy_buffer = io.BytesIO()
         np.save(npy_buffer, buffer)
+        del buffer, df
         return pair, {
             "start": start,
             "end": end,
@@ -70,6 +71,8 @@ def save_pair_candles(pairs: List[str], repo_id: str = "duonlabs/apogee", n_work
             pair, info, buffer = computed
             metadata.loc[f"{provider}.{pair}"] = info
             operations.append(huggingface_hub.CommitOperationAdd(f"{provider}/{pair}.npy", buffer))
+            print(f"{pair} ready for commit.")
+    print(f"Saving {len(operations)} pairs to {repo_id}...")
     huggingface_hub.create_commit(
         repo_id=repo_id,
         operations=operations + [huggingface_hub.CommitOperationAdd("metadata.csv", metadata.to_csv().encode("utf-8"))],
@@ -82,7 +85,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Download and save pair candles data.")
     parser.add_argument("pair", type=str, help="The trading pair to download data for (e.g., BTCUSDT).")
     parser.add_argument("--repo_id", type=str, default="duonlabs/apogee", help="The Hugging Face Hub repository ID to save the data.")
-    parser.add_argument("--n_workers", type=int, default=10, help="Number of worker threads to use for downloading data.")
+    parser.add_argument("--n_workers", type=int, default=5, help="Number of worker threads to use for downloading data.")
     args = parser.parse_args()
     # Process pair string or file
     if isinstance(args.pair, str):
