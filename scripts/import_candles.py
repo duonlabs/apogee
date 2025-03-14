@@ -60,25 +60,28 @@ def compute_info_and_buffer(pair: str, n_workers: int = 10) -> Optional[Tuple[st
         print(f"Failed to compute info and buffer for {pair}: {e}")
         return None
 
-def save_pair_candles(pairs: List[str], repo_id: str = "duonlabs/apogee", n_workers: int = 10):
+def save_pair_candles(pairs: List[str], repo_id: str = "duonlabs/apogee", n_workers: int = 5, batch_size: int = 5):
     provider = "binance"
     metadata = get_metadata(repo_id)
-    operations = []
-    with ThreadPoolExecutor(max_workers=n_workers) as executor:
-        for computed in executor.map(partial(compute_info_and_buffer, n_workers=n_workers), pairs):
-            if computed is None:
-                continue
-            pair, info, buffer = computed
-            metadata.loc[f"{provider}.{pair}"] = info
-            operations.append(huggingface_hub.CommitOperationAdd(f"{provider}/{pair}.npy", buffer))
-            print(f"{pair} ready for commit.")
-    print(f"Saving {len(operations)} pairs to {repo_id}...")
-    huggingface_hub.create_commit(
-        repo_id=repo_id,
-        operations=operations + [huggingface_hub.CommitOperationAdd("metadata.csv", metadata.to_csv().encode("utf-8"))],
-        commit_message=f"Updated {', '.join(pairs)}",
-        repo_type="dataset",
-    )
+    for i in range(0, len(pairs), batch_size):
+        batch_pairs = pairs[i:i+batch_size]
+        operations = []
+        with ThreadPoolExecutor(max_workers=n_workers) as executor:
+            for computed in executor.map(partial(compute_info_and_buffer, n_workers=n_workers), batch_pairs):
+                if computed is None:
+                    continue
+                pair, info, buffer = computed
+                metadata.loc[f"{provider}.{pair}"] = info
+                operations.append(huggingface_hub.CommitOperationAdd(f"{provider}/{pair}.npy", buffer))
+                print(f"{pair} ready for commit.")
+        print(f"Saving {len(operations)} pairs to {repo_id}...")
+        huggingface_hub.create_commit(
+            repo_id=repo_id,
+            operations=operations + [huggingface_hub.CommitOperationAdd("metadata.csv", metadata.to_csv().encode("utf-8"))],
+            commit_message=f"Updated {', '.join(batch_pairs)}",
+            repo_type="dataset",
+        )
+        del operations
 
 # Example usage:
 if __name__ == '__main__':
@@ -86,15 +89,16 @@ if __name__ == '__main__':
     parser.add_argument("pair", type=str, help="The trading pair to download data for (e.g., BTCUSDT).")
     parser.add_argument("--repo_id", type=str, default="duonlabs/apogee", help="The Hugging Face Hub repository ID to save the data.")
     parser.add_argument("--n_workers", type=int, default=5, help="Number of worker threads to use for downloading data.")
+    parser.add_argument("--batch_size", type=int, default=5, help="Number of pairs per commit.")
     args = parser.parse_args()
     # Process pair string or file
     if isinstance(args.pair, str):
         if Path(args.pair).exists():
             with open(args.pair, "r") as f:
-                args.pair = f.read().splitlines()
+                args.pair = f.read().strip().splitlines()
         else:
             args.pair = args.pair.split(",")
     # Login to Hugging Face Hub
     huggingface_hub.login(token=os.getenv("HF_TOKEN"))
     # Save pair candles data
-    save_pair_candles(args.pair, repo_id=args.repo_id, n_workers=args.n_workers)
+    save_pair_candles(args.pair, repo_id=args.repo_id, n_workers=args.n_workers, batch_size=args.batch_size)
