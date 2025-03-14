@@ -59,6 +59,7 @@ class CryptoDataset(torch.utils.data.Dataset):
             self.metadata["rep_offsets"] = rep_offsets
         else:
             self.metadata["rep_offsets"] = 0
+        self.metadata = self.metadata.reset_index(drop=True)
         self.cumulative_samples = np.cumsum(self.metadata["number_of_samples"].values)
         self.length = sum(self.metadata["number_of_samples"].values)
         print("Freq distribution:")
