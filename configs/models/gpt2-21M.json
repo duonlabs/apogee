@@ -1,5 +1,6 @@
 {
     "n_layer": 12,
     "n_embd": 384,
-    "head_dim": 64
+    "head_dim": 64,
+    "dropout": 0.1
 }

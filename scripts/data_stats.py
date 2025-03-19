@@ -3,13 +3,12 @@ import time
 import torch
 
 from tqdm import tqdm
-
-from apogee.data.loading import DataModule, DataConfig, DataloaderConfig
 from apogee.tokenizer import Tokenizer
+from apogee.data.loading import DataModule, DataConfig, DataloaderConfig
 
 def process_data_stats(hf_repo: str = "duonlabs/apogee", cutoff: int = 1730332740, timeout: int = 60, num_workers: int = 4, context_size: int = 48):
     tokenizer = Tokenizer()
-    datamodule = DataModule(DataConfig(hf_repo=hf_repo, cutoff=cutoff, context_size=context_size), tokenizer=tokenizer)
+    datamodule = DataModule(DataConfig(hf_repo=hf_repo, cutoff=cutoff, context_size=context_size, max_train_candles=None, training_temperature=1.0), tokenizer)
     print("Dataset stats:")
     print("Train dataset:")
     print(f"Number of tokens: {datamodule.train_dataset.num_tokens / 1_000_000_000:.2f}G")
@@ -34,7 +33,7 @@ def process_data_stats(hf_repo: str = "duonlabs/apogee", cutoff: int = 173033274
     n_samples_all_nans = 0
     progress_bar = tqdm(total=len(dataloader), desc="Processing", unit="batch")
     for batch in dataloader:
-        tok_is_nan = (batch[:, 1:].view(batch.shape[0], -1, 20) == torch.tensor([0, 0, 192, 127]*5, dtype=batch.dtype)).all(-1) # [0, 0, 192, 127] is NaN as handled by torch
+        tok_is_nan = (batch[:, 17:].view(batch.shape[0], -1, 20) == torch.tensor([127, 192, 0, 0]*5, dtype=batch.dtype)).all(-1) # [127, 192, 0, 0] is NaN as handled by torch
         n_nans_toks += tok_is_nan.int().sum()
         n_samples_any_nans += tok_is_nan.any(-1).int().sum()
         n_samples_all_nans += tok_is_nan.all(-1).int().sum()

@@ -9,15 +9,15 @@ from .data.aggregation import freq2sec
 class Tokenizer:
     letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 " # Allowed characters in pair names
     freqs = [k for k, _ in sorted(freq2sec.items(), key=lambda x: x[1])] # Sort the freq2sec by duration and extract the keys
-    pair_name_max_len: int = 10
-    vocabulary_size: int = 256 + 1 + len(letters) + len(freqs) # 256 possible bytes + 1 for <BOS> token + len(letters) for pair name
+    pair_name_max_len: int = 15
+    vocabulary_size: int = 256 + 1 + len(freqs) + len(letters) # 256 possible bytes + 1 for <BOS> token + len(freqs) for frequency tokens + len(letters) for pair name tokens
     tokens_per_candle: int = 4*5
-    meta_context_len: int = 11
+    meta_context_len: int = pair_name_max_len + 1 # Pair name + frequency
 
     def encode(self, key: str, freq: str, candles: Union[np.array, torch.Tensor]) -> torch.Tensor:
         """Tokenize candles into tokens."""
         _, pair = key.split(".") # Split the key into exchange and pair
-        meta = torch.tensor([257 + Tokenizer.letters.index(letter) for letter in pair.upper().ljust(self.pair_name_max_len)] + [257 + len(Tokenizer.letters) + Tokenizer.freqs.index(freq)], dtype=torch.uint16) # Encode the pair name and frequency
+        meta = torch.tensor([257 + Tokenizer.freqs.index(freq)] + [257 + len(Tokenizer.freqs) + Tokenizer.letters.index(letter) for letter in pair.upper().ljust(self.pair_name_max_len)], dtype=torch.uint16) # Encode the pair name and frequency
         if isinstance(candles, np.ndarray): # Wrap into a tensor
             candles = torch.tensor(candles)
         candles = (candles.view(torch.int32) << 1).view(torch.float32) # Erase the sign bit to fit the exponent into the first byte
@@ -43,12 +43,12 @@ class Tokenizer:
             squeeze = True
         else:
             squeeze = False
-        pair_meta, freq_meta = meta_tokens[..., :-1], meta_tokens[..., -1] # Extract pair and frequency tokens
+        freq_meta, pair_meta = meta_tokens[..., 0], meta_tokens[..., 1:] # Extract pair and frequency tokens
         pairs = []
         freqs = []
         for i in range(len(pair_meta)):
-            pairs.append("".join(Tokenizer.letters[token-257] for token in pair_meta[i].tolist()).rstrip(" "))
-            freqs.append(Tokenizer.freqs[freq_meta[i] - (257 + len(Tokenizer.letters))])
+            freqs.append(Tokenizer.freqs[freq_meta[i] - 257])
+            pairs.append("".join(Tokenizer.letters[token-len(Tokenizer.freqs)-257] for token in pair_meta[i].tolist()).rstrip(" "))
         pair = pairs[0] if squeeze else pairs
         freq = freqs[0] if squeeze else freqs
         return pair, freq, candles_tokens
