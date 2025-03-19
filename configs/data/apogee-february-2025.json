@@ -1,6 +1,6 @@
 {
     "hf_repo": "duonlabs/apogee",
-    "cutoff": 1704067200,
+    "cutoff": 1730332740,
     "training_temperature": 3.0,
     "max_train_candles": 100000000
 }

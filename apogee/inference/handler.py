@@ -56,7 +56,7 @@ class EndpointHandler:
             data (Dict[str, Any]):
                 inputs: Dict[str, Union[str, List[float]]] with keys:
                     pair: Pair symbol
-                    frequency: Frequency of the time serie (1m, 5m, 30m, 2h, 8h, 1d)
+                    frequency: Frequency of the time serie (1m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 1d)
                     timestamps: Timestamps of the time serie
                     open: Open prices
                     high: High prices
